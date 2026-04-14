@@ -3,7 +3,7 @@ import math
 from groq import Groq
 
 def groq_straighten(raw_lines, api_key):
-    client = Groq(api_key="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")
+    client = Groq(api_key="xxx")
     prompt = f"""
     You are a precision geometry engine. I will provide a list of 2D line segments [x1, y1, x2, y2].
     Your goal is to RECTIFY these lines into a perfect architectural grid.
