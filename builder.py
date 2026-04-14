@@ -1,29 +1,90 @@
 import numpy as np
 import trimesh
+import os
 
-def export_to_obj(cleaned_lines, output_file="apartment.obj"):
-    SCALE, WALL_H, WALL_T = 0.01, 3.0, 0.15
-    walls_3d = []
+# Renamed 'cleaned_lines' to 'walls' to match your internal logic
+def export_to_obj(walls, doors=None, output_file="apartment.obj"):
+    # --- CONFIGURATION ---
+    SCALE = 0.01
+    WALL_H = 3.0
+    FLOOR_THICKNESS = 0.05
+    
+    # Colors (R, G, B, A)
+    WALL_COLOR = [255, 253, 208, 255]  # Light Greyish-White
+    FLOOR_COLOR = [50, 50, 50, 255]    # Dark Charcoal
+    
+    components = []
+    all_points = [] 
 
-    for l in cleaned_lines:
-        x1, y1, x2, y2 = map(float, l)
-        lx1, ly1, lx2, ly2 = x1*SCALE, y1*SCALE, x2*SCALE, y2*SCALE
-        length = np.sqrt((lx2-lx1)**2 + (ly2-ly1)**2)
+    # 1. GENERATE WALLS FROM AI BOXES
+    for w_data in walls:
+        # Scale coordinates and dimensions
+        cx, cy = w_data['pos'][0] * SCALE, w_data['pos'][1] * SCALE
+        width, thick = w_data['w'] * SCALE, w_data['h'] * SCALE
         
-        if length < 0.1: continue 
-
-        cx, cy = (lx1 + lx2) / 2, (ly1 + ly2) / 2
-        wall = trimesh.creation.box(extents=(length, WALL_T, WALL_H))
+        # Create the box based on AI detected width/thickness
+        wall = trimesh.creation.box(extents=(width, thick, WALL_H))
+        wall.visual.face_colors = WALL_COLOR
         
-        angle = np.arctan2((ly2-ly1), (lx2-lx1))
-        rot = trimesh.transformations.rotation_matrix(angle, [0,0,1])
-        wall.apply_transform(rot)
+        # Move to position
         wall.apply_translation([cx, cy, WALL_H/2])
-        walls_3d.append(wall)
+        components.append(wall)
+        
+        # Collect points for floor calculation
+        all_points.append(w_data['pos'])
 
-    if walls_3d:
-        full_model = trimesh.util.concatenate(walls_3d)
+    # 2. GENERATE DOORS
+    if doors and os.path.exists("DOOR.obj"):
+        try:
+            base_door = trimesh.load("DOOR.obj")
+            orig_width = base_door.bounding_box.extents[0]
+            
+            for d in doors:
+                door_instance = base_door.copy()
+                
+                # Stand door up (Local Fix)
+                lift = trimesh.transformations.rotation_matrix(np.pi/2, [1, 0, 0])
+                door_instance.apply_transform(lift)
+                
+                # Scale to fit AI's detected width
+                target_w = max(d['w'], d['h']) * SCALE
+                door_instance.apply_scale(target_w / orig_width)
+                
+                # Rotate to match wall orientation
+                rot = trimesh.transformations.rotation_matrix(d['angle'], [0, 0, 1])
+                door_instance.apply_transform(rot)
+                
+                # Translate to position
+                door_instance.apply_translation([d['pos'][0]*SCALE, d['pos'][1]*SCALE, 0])
+                components.append(door_instance)
+        except Exception as e:
+            print(f"⚠️ Door Error: {e}")
+
+    # 3. GENERATE FLOOR
+    if all_points:
+        pts = np.array(all_points) * SCALE
+        min_x, min_y = pts.min(axis=0)
+        max_x, max_y = pts.max(axis=0)
+        
+        width = (max_x - min_x) + 1.0  # Slightly more padding
+        depth = (max_y - min_y) + 1.0
+        center_x = (min_x + max_x) / 2
+        center_y = (min_y + max_y) / 2
+
+        floor = trimesh.creation.box(extents=(width, depth, FLOOR_THICKNESS))
+        floor.visual.face_colors = FLOOR_COLOR
+        floor.apply_translation([center_x, center_y, -FLOOR_THICKNESS/2])
+        components.append(floor)
+
+    # 4. EXPORT
+    if components:
+        full_model = trimesh.util.concatenate(components)
+        
+        # Stand the entire house up for Blender/Viewers
+        stand_up_mat = trimesh.transformations.rotation_matrix(np.pi/2, [1, 0, 0])
+        full_model.apply_transform(stand_up_mat)
+        
         full_model.export(output_file)
-        print(f"✅ Blender-ready file saved: {output_file}")
+        print(f"✅ Enhanced Model saved: {output_file}")
     else:
-        print("❌ No walls to build.")
+        print("❌ No geometry generated.")
