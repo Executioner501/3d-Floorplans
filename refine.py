@@ -1,11 +1,12 @@
 import json
 import math
 from groq import Groq
+from dotenv import load_dotenv
 import os
 
-load_dotenv()
+load_dotenv()  
 def groq_straighten(raw_lines, api_key):
-    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+    client = Groq(api_key=os.getenv("api"))
     prompt = f"""
     You are a precision geometry engine. I will provide a list of 2D line segments [x1, y1, x2, y2].
     Your goal is to RECTIFY these lines into a perfect architectural grid.
@@ -74,3 +75,48 @@ def math_snap(lines, threshold=25):
                             snapped[i][idx_i], snapped[i][idx_i+1] = p_j
                             
     return snapped
+def identify_door_gaps(lines, min_gap=70, max_gap=130):
+    """
+    Analyzes gaps between collinear wall segments to find potential doors.
+    Returns a list of door dictionaries with position, width, and rotation.
+    """
+    doors = []
+    # Using a copy to avoid mutating the original wall list
+    processed_pairs = set()
+
+    for i, line_a in enumerate(lines):
+        for j, line_b in enumerate(lines):
+            if i >= j: continue
+            
+            # Check if lines are on the same axis (Collinear)
+            is_horiz = (line_a[1] == line_a[3] == line_b[1] == line_b[3])
+            is_vert = (line_a[0] == line_a[2] == line_b[0] == line_b[2])
+            
+            if not (is_horiz or is_vert):
+                continue
+
+            # Find the distance between the closest endpoints
+            # We check all 4 endpoint combinations between Line A and Line B
+            points_a = [(line_a[0], line_a[1]), (line_a[2], line_a[3])]
+            points_b = [(line_b[0], line_b[1]), (line_b[2], line_b[3])]
+            
+            best_dist = float('inf')
+            midpoint = (0, 0)
+
+            for p1 in points_a:
+                for p2 in points_b:
+                    d = math.hypot(p1[0]-p2[0], p1[1]-p2[1])
+                    if d < best_dist:
+                        best_dist = d
+                        midpoint = ((p1[0]+p2[0])/2, (p1[1]+p2[1])/2)
+
+            # If the gap falls within standard door sizes (scaled units)
+            if min_gap <= best_dist <= max_gap:
+                doors.append({
+                    "pos": midpoint,
+                    "width": best_dist,
+                    "orientation": "horizontal" if is_horiz else "vertical",
+                    "angle": 0 if is_horiz else math.pi/2
+                })
+                
+    return doors
