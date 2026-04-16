@@ -1,0 +1,9 @@
+/venv
+__pycache__/
+
+# 3D generated models
+*.obj
+*.mtl
+
+# OS generated files
+.DS_Store
