@@ -5,7 +5,7 @@ from ultralytics import YOLO
 from detect import process_yolo_results
 from ask_gemini import get_roof_parameters
 # --- CONFIG ---
-API_KEY = "paste-your-groq-api-key-here"  # Replace with your actual Gemini API key
+API_KEY = "paste-your-grok-api-key-here"  # Replace with your actual Gemini API key
 INPUT_IMG = "floorplan.png"
 
 def run_pipeline():
