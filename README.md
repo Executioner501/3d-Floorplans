@@ -1,4 +1,4 @@
-# 3D-Floorplanner
+# 3D Floorplan Generator
 
 An automated pipeline that leverages Computer Vision (YOLO) and Generative AI (Gemini) to convert standard 2D floorplan images into dynamic, multi-volume 3D architectural models. 
 
@@ -8,7 +8,7 @@ This project bridges the gap between static 2D layouts and 3D architectural visu
 
 ## Features
 
-- **Automated Feature Extraction:** Utilizes a YOLO object detection model to identify and extract spatial coordinates for walls and doors from 2D floorplan images.
+- **Automated Feature Extraction:** Utilizes a custom-trained YOLO object detection model to accurately identify and extract spatial coordinates for walls and doors from 2D floorplan images.
 
 - **AI-Driven Architectural Design:** Integrates Google's Gemini 2.5 Flash to act as an automated architect. The LLM analyzes the floorplan's footprint to assign optimal roof styles (e.g., flat, split-level, mono-pitch, shed) and structural parameters (overhang, parapets, canopies).
 
@@ -20,27 +20,46 @@ This project bridges the gap between static 2D layouts and 3D architectural visu
 
 ---
 
+## Model Weights & Dataset
+
+This pipeline relies on a custom-trained YOLO model to detect architectural features.
+
+The model weights (`doors.pt`) were trained using the **CubiCasa5k floor plan dataset**:  
+https://github.com/CubiCasa/CubiCasa5k
+
+- Contains 5,000 professionally annotated floorplans
+- Provides high-quality labels for walls, doors, and spatial layouts
+
+> ⚠️ Ensure that your `doors.pt` file is placed in the root directory before running the pipeline.
+
+---
+
 ## Pipeline Overview
 
 1. **Vision Phase**  
-   A 2D image (`floorplan.png`) is processed. The YOLO model outputs bounding boxes and coordinates for foundational structures.
+   A 2D image (`floorplan.png`) is processed by the custom YOLO model (`doors.pt`).  
+   The model outputs bounding boxes and coordinates for structural elements.
 
 2. **Analysis Phase**  
-   `ask_gemini.py` passes the layout to the Gemini API, which returns a structured JSON payload defining the architectural style.
+   `ask_gemini.py` sends the layout to the Gemini API, which returns structured architectural decisions in JSON format.
 
 3. **Construction Phase**  
-   `builder.py` takes the structural coordinates and AI parameters to procedurally generate the 3D meshes.
+   `builder.py` converts coordinates and AI parameters into procedural 3D meshes.
 
 4. **Export Phase**  
-   The distinct meshes (walls, floors, roofs, canopies, stairs) are concatenated and exported as `apartment.obj`.
+   All generated meshes are combined and exported as:
+   ```
+   apartment.obj
+   ```
 
 ---
 
 ## Prerequisites
 
 - Python 3.9+
-- A valid Google Gemini API Key
-- A valid Groq API Key 
+- Google Gemini API Key
+- Groq API Key
+- Custom YOLO weights file (`doors.pt`)
 
 ---
 
@@ -53,18 +72,18 @@ git clone https://github.com/Executioner501/3d-Floorplans.git
 cd 3d-Floorplans
 ```
 
-### 2. Create and activate a virtual environment
+### 2. Create a virtual environment
 
 ```bash
 python -m venv venv
 ```
 
-**Windows:**
+**Windows**
 ```bash
 venv\Scripts\activate
 ```
 
-**macOS/Linux:**
+**macOS/Linux**
 ```bash
 source venv/bin/activate
 ```
@@ -79,34 +98,40 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Before running the pipeline, you must supply your API keys.
+Insert your API keys before running:
 
-- Open `main.py` and insert your **Groq API Key**
-- Open `ask_gemini.py` and insert your **Google Gemini API Key**
+- Add **Groq API Key** in `main.py`
+- Add **Gemini API Key** in `ask_gemini.py`
 
-> ⚠️ For production use, store API keys as environment variables instead of hardcoding.
+> ⚠️ Recommended: Use environment variables instead of hardcoding keys.
 
 ---
 
 ## Usage
 
-### 1. Add your floorplan
+### 1. Add input image
 
-Place your image in the root directory and name it:
+Place your floorplan in the root directory:
 
 ```
 floorplan.png
 ```
 
-*(Or update the path in the script)*
+### 2. Add model weights
 
-### 2. Run the pipeline
+Ensure this file exists:
+
+```
+doors.pt
+```
+
+### 3. Run the pipeline
 
 ```bash
 python main.py
 ```
 
-### 3. Output
+### 4. Output
 
 After execution, the generated 3D model will be saved as:
 
@@ -116,9 +141,16 @@ apartment.obj
 
 ---
 
-## Output Details
+## Output
 
-The `.obj` file includes material-based visual separation:
+The resulting `.obj` file can be opened in:
+
+- Blender
+- Unity
+- Unreal Engine
+- Any standard 3D viewer
+
+### Material Mapping
 
 - **Walls:** Warm Cream  
 - **Floors:** Dark Charcoal  
@@ -130,18 +162,19 @@ The `.obj` file includes material-based visual separation:
 
 ## Tech Stack
 
-- **Computer Vision:** YOLO  
-- **LLM:** Gemini 2.5 Flash  
-- **Geometry:** trimesh, shapely  
-- **Language:** Python  
+- **Computer Vision:** YOLO (custom-trained)
+- **Dataset:** CubiCasa5k
+- **LLM:** Gemini 2.5 Flash
+- **Geometry:** trimesh, shapely
+- **Language:** Python
 
 ---
 
 ## Future Improvements
 
-- Interior room detection (bedrooms, kitchens, etc.)
-- Texture mapping and realistic materials
-- Web-based 3D preview (Three.js)
+- Interior room classification (bedroom, kitchen, etc.)
+- Realistic textures and materials
+- Web-based visualization (Three.js)
 - Multi-floor building support
 
 ---
