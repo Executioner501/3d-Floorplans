@@ -22,6 +22,7 @@ def run_pipeline():
     
     # 3. 3D Build
     export_to_obj(walls, doors,roof_params=roof_params)
+    export_to_obj(walls, doors,roof_params=None,output_file="no_roof.glb")
 
 if __name__ == "__main__":
     run_pipeline()

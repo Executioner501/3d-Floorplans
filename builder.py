@@ -236,7 +236,12 @@ def _make_step_riser(x_edge, min_y, max_y, low_z, high_z, thickness=0.20):
 # ══════════════════════════════════════════════════════════════════
 
 def export_to_obj(walls, doors=None, roof_params=None,
-                  output_file="apartment.obj"):
+                  output_file=None):
+    if output_file is None:
+        output_file = "apartment.glb"
+        print(f"ℹ️  No output file specified. Defaulting to '{output_file}'.")
+    else:
+        print(f"ℹ️  Exporting model to '{output_file}'...")
 
     SCALE           = 0.01
     WALL_H          = 3.0
@@ -501,9 +506,41 @@ def _finish(components, output_file):
     if not components:
         print("❌ No geometry generated.")
         return
+
+    # Bake face colors → vertex colors on each mesh before concatenating.
+    # This embeds all color data directly in the mesh so no .mtl sidecar
+    # is needed. Works with any export format that supports vertex colors
+    # (e.g. .glb, .ply); .obj is silently downgraded to no-color.
+    for mesh in components:
+        if not isinstance(mesh, trimesh.Trimesh):
+            continue
+        try:
+            fc = mesh.visual.face_colors          # (F, 4) RGBA uint8
+            if fc is not None and len(fc) == len(mesh.faces):
+                # Expand face colors to per-vertex (each vertex gets the
+                # color of its first incident face — good enough for flat
+                # architectural surfaces).
+                vc = np.zeros((len(mesh.vertices), 4), dtype=np.uint8)
+                for fi, face in enumerate(mesh.faces):
+                    for vi in face:
+                        vc[vi] = fc[fi]
+                mesh.visual = trimesh.visual.ColorVisuals(
+                    mesh=mesh, vertex_colors=vc)
+        except Exception:
+            pass  # leave visual untouched if anything goes wrong
+
     full_model = trimesh.util.concatenate(components)
-    # FIX: -np.pi/2 confirmed correct by user (avoids inverted output)
+
+    # -np.pi/2 confirmed correct by user (avoids inverted output)
     full_model.apply_transform(
         trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0]))
-    full_model.export(output_file)
-    print(f"✅ Model saved → {output_file}")
+
+    # Auto-switch to .glb if caller passed a .obj path, since .obj cannot
+    # carry vertex colors without a .mtl file. .glb is a single binary file.
+    out = output_file
+    if out.lower().endswith(".obj"):
+        out = out[:-4] + ".glb"
+        print(f"ℹ️  Output switched to '{out}' (GLB embeds colors; OBJ cannot)")
+
+    full_model.export(out)
+    print(f"✅ Model saved → {out}")

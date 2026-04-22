@@ -2,7 +2,8 @@ import os
 import json
 import google.generativeai as genai
 from PIL import Image
-
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file
 os.environ["GEMINI_API_KEY"] = "paste-your-gemini-api-key-here"  # Replace with your actual Gemini API key
 
 
@@ -11,7 +12,7 @@ def get_roof_parameters(image_path="floorplan.png"):
     Sends the floorplan to Gemini and asks for modern roof parameters.
     Returns a rich dict that builder.py can use directly.
     """
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.getenv("api_key")
     if not api_key:
         raise ValueError("Please set the GEMINI_API_KEY environment variable.")
     genai.configure(api_key=api_key)
