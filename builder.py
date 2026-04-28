@@ -15,14 +15,14 @@ import os
 # ─────────────────────────────────────────────
 #  COLOUR PALETTE
 # ─────────────────────────────────────────────
-WALL_COLOR    = [255, 253, 208, 255]   # warm cream
-FLOOR_COLOR   = [50,  50,  50,  255]   # dark charcoal
-ROOF_COLOR    = [55,  58,  60,  255]   # dark slate
-PARAPET_COLOR = [38,  40,  42,  255]   # near-black
-COLUMN_COLOR  = [200, 195, 190, 255]   # light concrete
-RAIL_COLOR    = [90,  90,  90,  255]   # steel
-STAIR_COLOR   = [210, 205, 200, 255]   # pale stone
-DOOR_COLOR    = [120, 80,  50,  255]   # warm wood brown
+WALL_COLOR    = [245, 242, 230, 255]   # lighter warm cream (clean walls)
+FLOOR_COLOR   = [140, 140, 140, 255]   # medium gray (visible, not distracting)
+ROOF_COLOR    = [90,  95,  100, 255]   # lighter slate (not black)
+PARAPET_COLOR = [80,  85,  90,  255]   # slightly darker than roof
+COLUMN_COLOR  = [220, 215, 210, 255]   # brighter concrete
+RAIL_COLOR    = [120, 120, 120, 255]   # lighter steel
+STAIR_COLOR   = [230, 225, 220, 255]   # very light stone (stands out)
+DOOR_COLOR    = [150, 110, 70,  255]   # slightly brighter wood
 
 
 # ══════════════════════════════════════════════════════════════════
