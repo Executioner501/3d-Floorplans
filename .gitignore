@@ -6,3 +6,6 @@
 
 # OS generated files
 .DS_Store
+
+#generated models
+.glb
