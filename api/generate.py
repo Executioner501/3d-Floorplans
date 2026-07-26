@@ -61,14 +61,36 @@ def _load_image(data_url):
     return img.convert("RGB")
 
 
+def _build(walls, doors, windows, params, scale, tag):
+    """Run one build and return the GLB bytes. /tmp is the only writable
+    location on the serverless filesystem."""
+    from builder import export_to_obj
+    path = os.path.join(tempfile.gettempdir(), f"{tag}.glb")
+    export_to_obj(walls, doors, roof_params=params, output_file=path,
+                  scale=scale, windows=windows)
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
 def run_pipeline(image, seed=None, style_pref="mixed", recipe=None):
-    """Detect -> scale -> design -> build. Returns (glb_bytes, stats)."""
+    """Detect -> scale -> design -> build.
+
+    Returns (glb, glb_no_roof, stats). The roofless build is the same
+    structure with `roof_params=None`, which the viewer shows underneath so
+    the walls, openings and floor plate can be read without the roof
+    covering them. It costs one extra export (~0.1 s).
+    """
     import numpy as np
     import detect_onnx
     from scale_utils import estimate_scale
     from roof_ai import design_roof_rag
     from roof_generator import extract_footprint, footprint_metrics
-    from builder import export_to_obj
 
     walls, doors, windows = detect_onnx.detect_and_snap(image)
     if len(walls) < 3:
@@ -87,15 +109,8 @@ def run_pipeline(image, seed=None, style_pref="mixed", recipe=None):
                              style_pref=style_pref, recipe=recipe,
                              history_file=None)
 
-    out_path = os.path.join(tempfile.gettempdir(), f"house_{seed}.glb")
-    export_to_obj(walls, doors, roof_params=params, output_file=out_path,
-                  scale=scale, windows=windows)
-    with open(out_path, "rb") as f:
-        glb = f.read()
-    try:
-        os.remove(out_path)
-    except OSError:
-        pass
+    glb = _build(walls, doors, windows, params, scale, f"house_{seed}")
+    glb_no_roof = _build(walls, doors, windows, None, scale, f"bare_{seed}")
 
     poly = extract_footprint(walls, scale)
     m = footprint_metrics(poly) if poly is not None else {}
@@ -114,7 +129,7 @@ def run_pipeline(image, seed=None, style_pref="mixed", recipe=None):
         "zones": len(params.get("zones", []) or []),
         "size_kb": round(len(glb) / 1024),
     }
-    return glb, stats
+    return glb, glb_no_roof, stats
 
 
 class handler(BaseHTTPRequestHandler):
@@ -241,7 +256,7 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             seed = req.get("seed")
-            glb, stats = run_pipeline(
+            glb, glb_no_roof, stats = run_pipeline(
                 image,
                 seed=int(seed) if seed not in (None, "") else None,
                 style_pref=req.get("style") or "mixed",
@@ -252,5 +267,8 @@ class handler(BaseHTTPRequestHandler):
             traceback.print_exc()
             return self._send(500, {"error": f"generation failed: {e}"})
 
-        self._send(200, {"glb": base64.b64encode(glb).decode("ascii"),
-                         "stats": stats})
+        self._send(200, {
+            "glb": base64.b64encode(glb).decode("ascii"),
+            "glb_no_roof": base64.b64encode(glb_no_roof).decode("ascii"),
+            "stats": stats,
+        })

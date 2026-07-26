@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Construct-AI — floor plans become architecture</title>
 <meta name="description" content="Turn a 2D floor plan into a 3D house. A retrieval-augmented roof engine picks a real architectural composition that fits your footprint.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌸</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -18,31 +18,55 @@
   <canvas id="loader-petals" class="loader__petals"></canvas>
 
   <div class="loader__core">
-    <svg class="enso" viewBox="0 0 200 200" aria-hidden="true">
+    <svg class="holo" viewBox="0 0 200 190" aria-hidden="true">
       <defs>
-        <linearGradient id="ensoGrad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%"   stop-color="#FFD7E4"/>
-          <stop offset="55%"  stop-color="#F58FB4"/>
-          <stop offset="100%" stop-color="#C96A87"/>
+        <linearGradient id="holoStroke" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#7FB0C4"/>
+          <stop offset="55%"  stop-color="#E58AA5"/>
+          <stop offset="100%" stop-color="#B85B79"/>
+        </linearGradient>
+        <linearGradient id="holoFace" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#E58AA5" stop-opacity=".20"/>
+          <stop offset="100%" stop-color="#7FB0C4" stop-opacity=".06"/>
         </linearGradient>
       </defs>
-      <circle class="enso__ring" cx="100" cy="100" r="78"
-              fill="none" stroke="url(#ensoGrad)" stroke-width="3.5"
-              stroke-linecap="round"/>
-    </svg>
 
-    <div class="loader__glyph" aria-hidden="true">桜</div>
+      <!-- translucent volume, fades in as the frame completes -->
+      <g class="holo__faces" fill="url(#holoFace)">
+        <path d="M54 118 L100 144 L100 108 L54 82 Z"/>
+        <path d="M100 144 L146 118 L146 82 L100 108 Z"/>
+        <path d="M54 82  L100 108 L123 71 L77 45 Z"/>
+        <path d="M100 56 L146 82  L123 71 L77 45 Z"/>
+        <path d="M54 82  L100 56  L77 45 Z"/>
+        <path d="M100 108 L146 82 L123 71 Z"/>
+      </g>
+
+      <!-- wireframe, drawn in construction order -->
+      <g class="holo__lines" fill="none" stroke="url(#holoStroke)"
+         stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path class="holo__p" d="M29 118 L171 118 M100 78 L100 158"/>
+        <path class="holo__p" d="M29 118 L100 78 L171 118 L100 158 Z"/>
+        <path class="holo__p" d="M54 118 L100 92 L146 118 L100 144 Z"/>
+        <path class="holo__p" d="M54 118 L54 82 M100 92 L100 56 M146 118 L146 82 M100 144 L100 108"/>
+        <path class="holo__p" d="M54 82 L100 56 L146 82 L100 108 Z"/>
+        <path class="holo__p" d="M77 45 L123 71"/>
+        <path class="holo__p" d="M77 45 L54 82 M77 45 L100 56 M123 71 L146 82 M123 71 L100 108"/>
+        <path class="holo__p" d="M75 130 L82 134 L82 114 L75 110 Z"/>
+        <path class="holo__p" d="M116 122 L125 117 L125 105 L116 110 Z"/>
+      </g>
+
+      <rect class="holo__scan" x="24" y="0" width="152" height="1.6" rx="1"/>
+    </svg>
 
     <div class="loader__meta">
       <div class="loader__title">CONSTRUCT&#8202;-&#8202;AI</div>
       <div class="loader__bar"><i id="loader-fill"></i></div>
       <div class="loader__pct"><span id="loader-pct">0</span><b>%</b></div>
-      <div class="loader__status" id="loader-status">建築を準備しています</div>
+      <div class="loader__status" id="loader-status">Preparing</div>
     </div>
   </div>
 
-  <div class="loader__vert" aria-hidden="true">間取り図から建築へ</div>
-  <div class="loader__wash"></div>
+  <div class="loader__vert" aria-hidden="true">Floor plan to architecture</div>
 </div>
 
 <!-- ══════════════ PAGE ══════════════ -->
@@ -66,7 +90,7 @@
   <!-- ── hero ── -->
   <section class="hero">
     <div class="hero__inner">
-      <p class="eyebrow reveal">2D 間取り図 → 3D 建築</p>
+      <p class="eyebrow reveal">2D floor plan → 3D architecture</p>
       <h1 class="hero__title reveal" data-delay="1">
         <span>Floor plans</span>
         <span class="ink">become</span>
@@ -82,7 +106,7 @@
         <a class="btn btn--ghost" href="#how">See how it works</a>
       </div>
     </div>
-    <div class="hero__vert" aria-hidden="true">桜 · 建築知能</div>
+    <div class="hero__vert" aria-hidden="true">Construct&#8202;-&#8202;AI</div>
     <div class="scroll-hint" aria-hidden="true"><i></i><span>SCROLL</span></div>
   </section>
 
@@ -91,8 +115,7 @@
     <div class="step__grid">
       <div class="step__text reveal">
         <span class="step__num">01</span>
-        <h2 class="step__kanji">検出</h2>
-        <h3 class="step__title">Detection</h3>
+        <h2 class="step__title">Detection</h2>
         <p>
           A YOLOv8 detector trained on 5,000 annotated CubiCasa5k plans finds
           every wall, door and window. Raw boxes are noisy, so each opening is
@@ -111,8 +134,7 @@
     <div class="step__grid step__grid--flip">
       <div class="step__text reveal">
         <span class="step__num">02</span>
-        <h2 class="step__kanji">尺度</h2>
-        <h3 class="step__title">Scale</h3>
+        <h2 class="step__title">Scale</h2>
         <p>
           Pixels mean nothing until they mean metres. The scale is derived per
           plan — from printed dimension text when it can be read, otherwise by
@@ -133,8 +155,7 @@
     <div class="step__grid">
       <div class="step__text reveal">
         <span class="step__num">03</span>
-        <h2 class="step__kanji">検索</h2>
-        <h3 class="step__title">Retrieval</h3>
+        <h2 class="step__title">Retrieval</h2>
         <p>
           Rather than asking a language model to invent a roof, the engine
           retrieves one. A library of <strong>44 architectural compositions</strong>
@@ -157,8 +178,7 @@
     <div class="step__grid step__grid--flip">
       <div class="step__text reveal">
         <span class="step__num">04</span>
-        <h2 class="step__kanji">幾何</h2>
-        <h3 class="step__title">Geometry</h3>
+        <h2 class="step__title">Geometry</h2>
         <p>
           The retrieved composition is executed by a constrained geometry
           engine. Hip and valley surfaces come from a distance field, so ridges
@@ -195,7 +215,7 @@
       <figure class="explore__shot">
         <img src="/img/build.png" alt="A finished 3D house generated from a 2D floor plan" loading="lazy">
       </figure>
-      <p class="eyebrow">探索</p>
+      <p class="eyebrow">Explore</p>
       <h2>Explore it yourself</h2>
       <p class="explore__lede">
         Drop in a floor plan and watch it become a building. No sign-up,

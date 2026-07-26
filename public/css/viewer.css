@@ -269,6 +269,25 @@ button, input, select { font: inherit; color: inherit; }
 .mini--solid:hover { background: #2C2522; border-color: #2C2522; }
 .mini:disabled { opacity: .4; cursor: not-allowed; transform: none; }
 
+.shot { margin: 0 0 1.5rem; }
+.shot:last-of-type { margin-bottom: 0; }
+
+.shot__cap {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .25rem .7rem;
+  margin-bottom: .6rem;
+}
+.shot__cap b {
+  font-size: .74rem;
+  font-weight: 600;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.shot__cap span { font-size: .85rem; color: var(--ink-3); }
+
 .stage {
   position: relative;
   aspect-ratio: 16 / 10;

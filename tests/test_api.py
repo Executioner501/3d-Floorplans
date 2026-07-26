@@ -73,7 +73,7 @@ def test_export_does_not_reach_for_scipy():
     blocker = _ImportBlocker("scipy")
     sys.meta_path.insert(0, blocker)
     try:
-        glb, _ = run_pipeline(Image.open(PLAN), seed=11)
+        glb, bare, _ = run_pipeline(Image.open(PLAN), seed=11)
     finally:
         sys.meta_path.remove(blocker)
     assert glb[:4] == GLTF_MAGIC
@@ -112,7 +112,7 @@ def test_export_output_is_environment_independent():
     sys.path.insert(0, os.path.join(ROOT, "api"))
     from api.generate import run_pipeline
 
-    glb, _ = run_pipeline(Image.open(PLAN), seed=11)
+    glb, bare, _ = run_pipeline(Image.open(PLAN), seed=11)
     import hashlib
     digest = hashlib.sha256(glb).hexdigest()
     # Recorded from a runtime-only environment (no scipy, no torch) and a
@@ -146,7 +146,7 @@ def test_pipeline_returns_a_valid_glb():
     sys.path.insert(0, os.path.join(ROOT, "api"))
     from api.generate import run_pipeline
 
-    glb, stats = run_pipeline(Image.open(PLAN), seed=11)
+    glb, bare, stats = run_pipeline(Image.open(PLAN), seed=11)
 
     assert glb[:4] == GLTF_MAGIC, "response is not a binary glTF"
     assert len(glb) > 50_000, f"suspiciously small model: {len(glb)} bytes"
@@ -160,6 +160,30 @@ def test_pipeline_returns_a_valid_glb():
     assert stats["seed"] == 11
 
 
+def test_roofless_model_is_returned_and_distinct():
+    """The viewer shows the structure below the roofed model, so the second
+    build must be real geometry and must genuinely differ from the first."""
+    reason = _skip_reason()
+    if reason:
+        print(f"SKIP: {reason}")
+        return
+    from PIL import Image
+    sys.path.insert(0, os.path.join(ROOT, "api"))
+    from api.generate import run_pipeline
+
+    glb, bare, _ = run_pipeline(Image.open(PLAN), seed=11)
+
+    assert bare[:4] == GLTF_MAGIC, "roofless response is not a binary glTF"
+    assert len(bare) > 50_000, f"roofless model is a stub: {len(bare)} bytes"
+    assert bare != glb, "roofless build is identical to the roofed one"
+
+    # Both are base64'd into one JSON response, which Vercel caps at 4.5 MB.
+    payload = (len(glb) + len(bare)) * 4 / 3
+    assert payload < 4_000_000, (
+        f"combined response ~{payload / 1e6:.2f} MB is too close to the "
+        f"4.5 MB serverless response limit")
+
+
 def test_pipeline_is_deterministic_for_a_seed():
     reason = _skip_reason()
     if reason:
@@ -169,11 +193,12 @@ def test_pipeline_is_deterministic_for_a_seed():
     sys.path.insert(0, os.path.join(ROOT, "api"))
     from api.generate import run_pipeline
 
-    a, sa = run_pipeline(Image.open(PLAN), seed=5)
-    b, sb = run_pipeline(Image.open(PLAN), seed=5)
+    a, a_bare, sa = run_pipeline(Image.open(PLAN), seed=5)
+    b, b_bare, sb = run_pipeline(Image.open(PLAN), seed=5)
     assert sa["recipe_id"] == sb["recipe_id"]
     assert sa["material"] == sb["material"]
     assert len(a) == len(b)
+    assert len(a_bare) == len(b_bare)
 
 
 def main():
