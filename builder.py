@@ -1,10 +1,19 @@
 """
-builder.py  –  Final fixed version
-Fixes applied:
-  1. Canopy: use gmin_y (actual front-wall face) for Y, not door-centre Y
-  2. Doors: procedural fallback box when DOOR.obj is absent
-  3. Stairs: subtract overhang from X so stairs never clip the roof edge
-  4. Rotation: -np.pi/2 (confirmed correct by user)
+builder.py — assembles the final building and exports it
+========================================================
+Takes the detected walls/doors/windows plus a roof-parameter dict and
+produces a GLB: walls with boolean-cut openings, framed joinery, floor
+slab, site context, facade trim, and the roof (delegated to
+roof_generator for every modern style; the legacy slab path below is a
+fallback only).
+
+Notes worth keeping in mind when editing:
+  · Canopy uses gmin_y (the actual front-wall face), not the door centre.
+  · Doors fall back to a procedural box when `door.obj` is absent.
+  · Stairs subtract the overhang from X so they never clip the roof edge.
+  · `_finish` rotates by -pi/2 about X (Z-up build → Y-up glTF).
+  · Export is always GLB: vertex-colour meshes render near-black in most
+    viewers, so each part gets an explicit non-metallic PBR material.
 """
 import numpy as np
 import trimesh
@@ -236,14 +245,16 @@ def _make_step_riser(x_edge, min_y, max_y, low_z, high_z, thickness=0.20):
 # ══════════════════════════════════════════════════════════════════
 
 def export_to_obj(walls, doors=None, roof_params=None,
-                  output_file=None):
+                  output_file=None, scale=0.01, windows=None):
     if output_file is None:
         output_file = "apartment.glb"
         print(f"ℹ️  No output file specified. Defaulting to '{output_file}'.")
     else:
         print(f"ℹ️  Exporting model to '{output_file}'...")
 
-    SCALE           = 0.01
+    # px→metre scale is now PER PLAN (see scale_utils.estimate_scale);
+    # 0.01 kept as default for the synthetic demo plans.
+    SCALE           = float(scale)
     WALL_H          = 3.0
     FLOOR_THICKNESS = 0.05
 
@@ -251,66 +262,186 @@ def export_to_obj(walls, doors=None, roof_params=None,
     all_points = []
 
     # ════════════════════════════════════════
-    #  1. WALLS  (exterior + interior partitions)
+    #  1. WALLS  (with real door/window openings cut out)
+    #     Openings are BOOLEAN-SUBTRACTED from the wall boxes, then
+    #     re-filled with framed joinery. Two reasons this matters:
+    #     a solid wall makes a door read as a plaque glued on, and at
+    #     real wall thickness (~0.13 m) the old fixed 0.14 m frame was
+    #     effectively coplanar with the wall face → z-fighting.
+    #     Joinery depths are derived from each wall's own thickness.
     # ════════════════════════════════════════
-    for w_data in walls:
+    DOOR_H      = min(2.15, WALL_H * 0.72)
+    SILL, WIN_H = 0.95, 1.30
+
+    def _ext3(is_vert, along, across, height):
+        """Extents for a part aligned with its wall's axis."""
+        return (across, along, height) if is_vert else (along, across, height)
+
+    def _shift(is_vert, along, across=0.0):
+        """(dx, dy) offset along / across the wall axis."""
+        return (across, along) if is_vert else (along, across)
+
+    openings = []
+    for _d in (doors or []):
+        openings.append({"o": _d, "kind": "door", "z0": 0.0, "z1": DOOR_H})
+    for _w in (windows or []):
+        openings.append({"o": _w, "kind": "window",
+                         "z0": SILL, "z1": SILL + WIN_H})
+
+    def _belongs(entry, wi, w_data):
+        """Openings carry the wall index detect.py snapped them to;
+        fall back to geometric containment for hand-built inputs."""
+        o = entry["o"]
+        if o.get("wall") is not None:
+            return o["wall"] == wi
+        cx_, cy_ = o["pos"]
+        return (abs(cx_ - w_data["pos"][0]) <= w_data["w"] / 2 + 2.0 and
+                abs(cy_ - w_data["pos"][1]) <= w_data["h"] / 2 + 2.0)
+
+    for wi, w_data in enumerate(walls):
         cx    = w_data['pos'][0] * SCALE
         cy    = w_data['pos'][1] * SCALE
         width = w_data['w']      * SCALE
         thick = w_data['h']      * SCALE
+        wall_t = min(width, thick)          # true thickness of this wall
 
         wall = trimesh.creation.box(extents=(width, thick, WALL_H))
-        wall.visual.face_colors = WALL_COLOR
         wall.apply_translation([cx, cy, WALL_H / 2])
+
+        cutters = []
+        for entry in openings:
+            if not _belongs(entry, wi, w_data):
+                continue
+            o = entry["o"]
+            is_vert = bool(o.get("angle", 0))
+            ln = max(o['w'], o['h']) * SCALE
+            oh = entry["z1"] - entry["z0"]
+            cut = trimesh.creation.box(
+                extents=_ext3(is_vert, ln, wall_t + 0.60, oh))
+            cut.apply_translation([o['pos'][0] * SCALE, o['pos'][1] * SCALE,
+                                   (entry["z0"] + entry["z1"]) / 2])
+            cutters.append(cut)
+
+        if cutters:
+            try:
+                wall = trimesh.boolean.difference([wall] + cutters)
+            except Exception as e:
+                print(f"⚠️ Opening cut failed on wall {wi} ({e}); solid wall.")
+
+        wall.visual.face_colors = WALL_COLOR
         components.append(wall)
         all_points.append(w_data['pos'])
 
     # ════════════════════════════════════════
-    #  2. DOORS
-    #     FIX: when DOOR.obj is absent (the common case) generate a
-    #     procedural door box so doors are always visible.
+    #  2. JOINERY — door leaves and glazed panes seated in the reveals
+    #     cut above. Frames stand 15 mm proud of each wall face (never
+    #     coplanar), leaves/panes sit recessed inside the wall.
     # ════════════════════════════════════════
-    if doors:
-        door_loaded = False
-        base_door   = None
-        orig_width  = None
+    # DOOR.obj is authored Y-up; force='mesh' collapses it to a single
+    # Trimesh (plain load returns a Scene, which _finish drops — that
+    # silently deleted every door leaf and left bare frames).
+    # NB: the asset ships as lowercase `door.obj`. Windows/macOS resolve the
+    # name case-insensitively, so an uppercase literal here worked locally
+    # while silently falling back to procedural leaves on Linux (and in CI).
+    base_door = None
+    _door_asset = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "door.obj")
+    if doors and os.path.exists(_door_asset):
+        try:
+            cand = trimesh.load(_door_asset, force="mesh")
+            cand.apply_transform(
+                trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))
+            if isinstance(cand, trimesh.Trimesh) and len(cand.faces) and \
+                    np.all(cand.extents > 1e-6):
+                base_door = cand
+            else:
+                print("⚠️ door.obj unusable; using procedural door leaves.")
+        except Exception as e:
+            print(f"⚠️ Could not load door.obj ({e}); procedural leaves.")
 
-        if os.path.exists("DOOR.obj"):
-            try:
-                base_door  = trimesh.load("DOOR.obj")
-                orig_width = base_door.bounding_box.extents[0]
-                door_loaded = True
-            except Exception as e:
-                print(f"⚠️ Could not load DOOR.obj: {e}")
+    def _wall_t_of(o):
+        """Thickness in metres of the wall this opening sits in."""
+        if o.get("wall_t"):
+            return float(o["wall_t"]) * SCALE
+        if o.get("wall") is not None and o["wall"] < len(walls):
+            w = walls[o["wall"]]
+            return min(w['w'], w['h']) * SCALE
+        return min(o['w'], o['h']) * SCALE
 
-        for d in doors:
-            dw = max(d['w'], d['h']) * SCALE
-            dh = WALL_H * 0.85          # door height ≈ 85 % of wall height
-            dt = 0.08                   # door thickness (thin panel)
+    for entry in openings:
+        o       = entry["o"]
+        kind    = entry["kind"]
+        is_vert = bool(o.get("angle", 0))
+        ox, oy  = o['pos'][0] * SCALE, o['pos'][1] * SCALE
+        ln      = max(o['w'], o['h']) * SCALE
+        wt      = max(_wall_t_of(o), 0.08)
+        frame_c = wt + 0.03                 # 15 mm proud either side
+        jw      = 0.07                      # jamb / head section
 
-            if door_loaded and base_door is not None:
-                # ── Use the OBJ asset ────────────────────────────
+        def _put(mesh, along, z, across=0.0):
+            dx, dy = _shift(is_vert, along, across)
+            mesh.apply_translation([ox + dx, oy + dy, z])
+            components.append(mesh)
+
+        if kind == "door":
+            dh = entry["z1"]
+            leaf_t = max(0.05, wt * 0.45)
+            if base_door is not None:
+                # fit the asset to THIS opening: width × wall depth ×
+                # door height, base seated on the floor
                 di = base_door.copy()
-                di.apply_transform(
-                    trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))
-                di.apply_scale(dw / orig_width)
-                di.apply_transform(
-                    trimesh.transformations.rotation_matrix(d['angle'], [0, 0, 1]))
-                di.apply_translation([d['pos'][0] * SCALE,
-                                       d['pos'][1] * SCALE, 0])
+                tgt = np.array([ln - 0.05, leaf_t, dh - 0.04])
+                di.apply_scale(tgt / di.extents)
+                di.apply_translation(-di.bounds[0])       # min corner → origin
+                di.apply_translation([-tgt[0] / 2, -tgt[1] / 2, 0])
+                if is_vert:
+                    di.apply_transform(
+                        trimesh.transformations.rotation_matrix(
+                            np.pi / 2, [0, 0, 1]))
+                di.apply_translation([ox, oy, 0])
+                # replace (not mutate) the visual: the OBJ arrives with
+                # TextureVisuals, whose face_colors setter is a no-op
+                di.visual = trimesh.visual.ColorVisuals(
+                    mesh=di, face_colors=np.tile(DOOR_COLOR, (len(di.faces), 1)))
                 components.append(di)
             else:
-                # ── Procedural door box fallback ─────────────────
-                # Orient by detected angle: vertical door → swap w/h dims
-                is_vert = d['h'] > d['w']
-                ext_x   = dt  if is_vert else dw
-                ext_y   = dw  if is_vert else dt
-                door_box = trimesh.creation.box(extents=(ext_x, ext_y, dh))
-                door_box.visual.face_colors = DOOR_COLOR
-                door_box.apply_translation([d['pos'][0] * SCALE,
-                                             d['pos'][1] * SCALE,
-                                             dh / 2])
-                components.append(door_box)
+                leaf = trimesh.creation.box(
+                    extents=_ext3(is_vert, ln - 0.05, leaf_t, dh - 0.04))
+                leaf.visual.face_colors = DOOR_COLOR
+                _put(leaf, 0.0, (dh - 0.04) / 2)
+                knob = trimesh.creation.box(
+                    extents=_ext3(is_vert, 0.10, leaf_t + 0.06, 0.05))
+                knob.visual.face_colors = [196, 190, 176, 255]
+                _put(knob, ln / 2 - 0.16, 1.05)
+            for sgn in (-1, 1):             # jambs
+                jamb = trimesh.creation.box(
+                    extents=_ext3(is_vert, jw, frame_c, dh + jw))
+                jamb.visual.face_colors = [52, 54, 58, 255]
+                _put(jamb, sgn * (ln / 2 + jw / 2), (dh + jw) / 2)
+            head = trimesh.creation.box(
+                extents=_ext3(is_vert, ln + 2 * jw, frame_c, jw))
+            head.visual.face_colors = [52, 54, 58, 255]
+            _put(head, 0.0, dh + jw / 2)
+
+        else:                               # window
+            zc = (entry["z0"] + entry["z1"]) / 2
+            glass = trimesh.creation.box(
+                extents=_ext3(is_vert, ln - 0.03, 0.03, WIN_H - 0.03))
+            glass.visual.face_colors = [155, 195, 220, 150]
+            _put(glass, 0.0, zc)
+            for sgn in (-1, 1):             # jambs
+                jamb = trimesh.creation.box(
+                    extents=_ext3(is_vert, jw, frame_c, WIN_H + 2 * jw))
+                jamb.visual.face_colors = [50, 52, 56, 255]
+                _put(jamb, sgn * (ln / 2 + jw / 2), zc)
+            head = trimesh.creation.box(
+                extents=_ext3(is_vert, ln + 2 * jw, frame_c, jw))
+            head.visual.face_colors = [50, 52, 56, 255]
+            _put(head, 0.0, entry["z1"] + jw / 2)
+            sill = trimesh.creation.box(                    # sill projects
+                extents=_ext3(is_vert, ln + 2 * jw, frame_c + 0.06, jw))
+            sill.visual.face_colors = [214, 210, 202, 255]
+            _put(sill, 0.0, entry["z0"] - jw / 2)
 
     # ════════════════════════════════════════
     #  3. FLOOR
@@ -333,12 +464,86 @@ def export_to_obj(walls, doors=None, roof_params=None,
                                -FLOOR_THICKNESS / 2])
     components.append(floor)
 
+    # ── site context: paved pad + lawn (grounds the model visually) ──
+    cx0, cy0 = (gmin_x + gmax_x) / 2, (gmin_y + gmax_y) / 2
+    pad = trimesh.creation.box(
+        extents=((gmax_x - gmin_x) + 6.0, (gmax_y - gmin_y) + 6.0, 0.05))
+    pad.visual.face_colors = [200, 198, 192, 255]
+    pad.apply_translation([cx0, cy0, -FLOOR_THICKNESS - 0.030])
+    components.append(pad)
+    lawn = trimesh.creation.box(
+        extents=((gmax_x - gmin_x) + 16.0, (gmax_y - gmin_y) + 16.0, 0.04))
+    lawn.visual.face_colors = [128, 152, 100, 255]
+    lawn.apply_translation([cx0, cy0, -FLOOR_THICKNESS - 0.075])
+    components.append(lawn)
+
+    # ── facade detailing from the closed footprint outline ──────────
+    #    plinth at the base + slim charcoal trim at the roofline
+    try:
+        from roof_generator import extract_footprint
+        fpoly = extract_footprint(walls, SCALE)
+        if fpoly is not None and fpoly.area > 2.0:
+            plinth_ring = fpoly.buffer(0.10, join_style=2).difference(
+                fpoly.buffer(-0.06, join_style=2))
+            plinth = trimesh.creation.extrude_polygon(plinth_ring, height=0.30)
+            plinth.visual.face_colors = [168, 165, 158, 255]
+            plinth.apply_translation([0, 0, -0.02])
+            components.append(plinth)
+
+            trim_ring = fpoly.buffer(0.07, join_style=2).difference(
+                fpoly.buffer(-0.09, join_style=2))
+            trim = trimesh.creation.extrude_polygon(trim_ring, height=0.28)
+            trim.visual.face_colors = [72, 76, 82, 255]
+            trim.apply_translation([0, 0, WALL_H - 0.28])
+            components.append(trim)
+    except Exception:
+        pass
+
     # ════════════════════════════════════════
     #  4. ROOF  (skip gracefully when no params given)
     # ════════════════════════════════════════
     if not roof_params:
         _finish(components, output_file)
         return
+
+    # ── NEW GENERATIVE ROOF ENGINE ───────────────────────────────
+    # Styles like gable / cross-gable / hip / pyramid / dutch-gable /
+    # gambrel / mansard / saltbox / butterfly / skillion / flat-modern
+    # are built by roof_generator.py (footprint-aware, style-diverse).
+    # Legacy slab styles (flat, split-level, mono-pitch, shed) fall
+    # through to the original code below, unchanged.
+    _style = str(roof_params.get("roof_style", "")).lower()
+    try:
+        from roof_generator import generate_roof, NEW_ENGINE_STYLES
+        if _style in NEW_ENGINE_STYLES:
+            roof_meshes, roof_info = generate_roof(
+                walls, roof_params, scale=SCALE, wall_h=WALL_H)
+            if roof_meshes:
+                components.extend(roof_meshes)
+                print(f"🏠 Generative roof: {roof_info.get('style')} "
+                      f"({roof_info.get('material')}, "
+                      f"pitch {roof_info.get('pitch'):.0f}°, "
+                      f"{roof_info.get('wings')} wing(s))")
+                # optional entrance canopy still applies to any style
+                if roof_params.get("has_canopy"):
+                    pts_r  = np.array(all_points) * SCALE
+                    _gmaxy = float(pts_r[:, 1].max())
+                    if doors:
+                        _fd  = max(doors, key=lambda d: d['pos'][1])
+                        _ccx = _fd['pos'][0] * SCALE
+                        _cw  = max(max(_fd['w'], _fd['h']) * SCALE * 2.6, 2.0)
+                    else:
+                        _ccx = float(pts_r[:, 0].mean()); _cw = 2.2
+                    for part in _make_canopy(
+                            canopy_cx=_ccx, front_wall_y=_gmaxy,
+                            base_z=WALL_H - 0.25, width=_cw,
+                            depth=roof_params.get("canopy_depth", 1.6)):
+                        components.append(part)
+                _finish(components, output_file)
+                return
+    except Exception as e:
+        print(f"⚠️ Generative roof engine failed ({e}); "
+              f"falling back to legacy slab roof.")
 
     overhang       = roof_params.get("overhang",       0.40)
     slab_thickness = roof_params.get("slab_thickness", 0.20)
@@ -507,40 +712,36 @@ def _finish(components, output_file):
         print("❌ No geometry generated.")
         return
 
-    # Bake face colors → vertex colors on each mesh before concatenating.
-    # This embeds all color data directly in the mesh so no .mtl sidecar
-    # is needed. Works with any export format that supports vertex colors
-    # (e.g. .glb, .ply); .obj is silently downgraded to no-color.
+    # Export as a Scene with one PBR material per part instead of baked
+    # vertex colors. Vertex-color GLBs render near-black in most viewers
+    # (they get the default fully-metallic material); an explicit
+    # non-metallic rough baseColor lights correctly everywhere —
+    # three.js, Windows 3D Viewer, Blender.
+    rot = trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
+    scene = trimesh.Scene()
     for mesh in components:
-        if not isinstance(mesh, trimesh.Trimesh):
+        if not isinstance(mesh, trimesh.Trimesh) or len(mesh.faces) == 0:
             continue
+        m = mesh.copy()
         try:
-            fc = mesh.visual.face_colors          # (F, 4) RGBA uint8
-            if fc is not None and len(fc) == len(mesh.faces):
-                # Expand face colors to per-vertex (each vertex gets the
-                # color of its first incident face — good enough for flat
-                # architectural surfaces).
-                vc = np.zeros((len(mesh.vertices), 4), dtype=np.uint8)
-                for fi, face in enumerate(mesh.faces):
-                    for vi in face:
-                        vc[vi] = fc[fi]
-                mesh.visual = trimesh.visual.ColorVisuals(
-                    mesh=mesh, vertex_colors=vc)
+            rgba = np.array(m.visual.face_colors[0], dtype=float) / 255.0
         except Exception:
-            pass  # leave visual untouched if anything goes wrong
+            rgba = np.array([0.8, 0.8, 0.8, 1.0])
+        mat = trimesh.visual.material.PBRMaterial(
+            baseColorFactor=rgba.tolist(),
+            metallicFactor=0.05,
+            roughnessFactor=0.85)
+        if rgba[3] < 0.99:
+            mat.alphaMode = "BLEND"
+        m.visual = trimesh.visual.texture.TextureVisuals(material=mat)
+        # -np.pi/2 confirmed correct by user (avoids inverted output)
+        m.apply_transform(rot)
+        scene.add_geometry(m)
 
-    full_model = trimesh.util.concatenate(components)
-
-    # -np.pi/2 confirmed correct by user (avoids inverted output)
-    full_model.apply_transform(
-        trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0]))
-
-    # Auto-switch to .glb if caller passed a .obj path, since .obj cannot
-    # carry vertex colors without a .mtl file. .glb is a single binary file.
     out = output_file
     if out.lower().endswith(".obj"):
         out = out[:-4] + ".glb"
-        print(f"ℹ️  Output switched to '{out}' (GLB embeds colors; OBJ cannot)")
+        print(f"ℹ️  Output switched to '{out}' (GLB embeds materials; OBJ cannot)")
 
-    full_model.export(out)
+    scene.export(out)
     print(f"✅ Model saved → {out}")

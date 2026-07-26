@@ -1,11 +1,46 @@
-/venv
+# ── Python ──────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+venv/
+.venv/
+env/
 
-# 3D generated models
-
+# ── Secrets ─────────────────────────────────────────────────────────
 .env
+*.key
 
-# OS generated files
+# ── Editor / tooling ────────────────────────────────────────────────
+.vscode/
+.idea/
+.claude/
 .DS_Store
+Thumbs.db
 
-#generated models
-.glb
+# ── Large training data & weights (regenerate or download) ──────────
+# Diffusion checkpoints: ~33 MB each, produced by ml_roof_diffusion.train
+ckpt/
+# 20k pregenerated (mask, heightmap) pairs, produced by dataset.py --pregen
+synthetic_cache/
+# PoznanRD (13k real roofs) — see docs/RUN_GUIDE.md for the download
+datasets/*
+!datasets/PUT_POZNAN_DATA_HERE.txt
+
+# ── Pipeline output (regenerated on every run) ──────────────────────
+# Root-anchored on purpose: the curated copies under docs/gallery/ and
+# docs/samples/ are committed showcase assets and must NOT be ignored.
+/apartment.glb
+/no_roof.glb
+/demo_*.glb
+/showcase_*.glb
+/double_gable_demo.glb
+/diffusion_roofs/
+/*_preview.png
+/*_gallery.png
+
+# Cross-run RAG anti-repetition state — machine-local, not shared
+.rag_history.json
+
+# Mined KB extension — regenerate with kb_mining.py against your datasets
+roof_kb_mined.json

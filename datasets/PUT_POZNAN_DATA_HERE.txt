@@ -1,0 +1,12 @@
+Extract PoznanRD here so this folder contains `datasets/PoznanRD/...`.
+
+PoznanRD (13,037 real roof heightmaps) is the stage-2 finetuning set for the
+diffusion engine. Download it from the RoofDiffusion project's Google Drive
+link, then verify the layout with:
+
+    python check_poznan.py datasets/PoznanRD
+
+Heights are stored as uint16 pixels; metres = value / 256. The loader
+auto-detects the flist-pair and `roof_gt` + `roof_footprint` layouts.
+
+Nothing in this folder is tracked by git — see .gitignore.

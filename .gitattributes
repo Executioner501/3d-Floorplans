@@ -1,0 +1,12 @@
+# Normalise line endings so Windows/macOS/Linux checkouts don't churn.
+* text=auto eol=lf
+
+# Binary assets — never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.glb binary
+*.obj binary
+*.pt binary
+*.npz binary
