@@ -206,6 +206,17 @@ class handler(BaseHTTPRequestHandler):
         target = self._static_path(route)
         if target:
             return self._send_file(target)
+        if route == "/":
+            # In production the CDN serves public/ and those files are NOT in
+            # the function bundle (/api/health reports "static": false), so
+            # the index cannot be read here — but "/" alone does not resolve
+            # to index.html and falls through to this function. Point at it
+            # explicitly. No redirect loop: /index.html is served by the CDN.
+            self.send_response(302)
+            self.send_header("Location", "/index.html")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return
         self._send(404, {"error": "not found"})
 
     def do_POST(self):
