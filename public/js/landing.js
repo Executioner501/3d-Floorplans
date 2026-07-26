@@ -15,24 +15,44 @@ const loader   = document.getElementById('loader');
 const fill     = document.getElementById('loader-fill');
 const pctEl    = document.getElementById('loader-pct');
 const statusEl = document.getElementById('loader-status');
-const ring     = document.querySelector('.enso__ring');
+const holo     = document.querySelector('.holo');
 
 const STATUSES = [
-  [0,  '建築を準備しています'],   // preparing
-  [28, '間取り図を読み込み中'],   // reading the plan
-  [52, '構成を検索しています'],   // retrieving compositions
-  [76, '幾何形状を構築中'],       // building geometry
-  [94, '完成'],                   // complete
+  [0,  'Preparing'],
+  [28, 'Reading the plan'],
+  [52, 'Retrieving compositions'],
+  [76, 'Building geometry'],
+  [94, 'Complete'],
 ];
+
+/* The wireframe assembles in construction order — ground, foundation, walls,
+ * roof, openings — driven directly by load progress. Each path gets its own
+ * slice of the 0–1 range, with a slight overlap so the segments flow into
+ * one another instead of appearing one at a time. */
+const holoPaths = [...document.querySelectorAll('.holo__p')].map((p) => {
+  const len = p.getTotalLength();
+  p.style.strokeDasharray = len;
+  p.style.strokeDashoffset = len;
+  return { el: p, len };
+});
+
+function drawHolo(p) {
+  const n = holoPaths.length;
+  const span = 1 / n;
+  holoPaths.forEach((path, i) => {
+    const local = Math.max(0, Math.min(1, (p - i * span) / (span * 1.6)));
+    path.el.style.strokeDashoffset = path.len * (1 - local);
+  });
+  holo.classList.toggle('is-solid', p > 0.55);
+}
 
 const loaderField = new SakuraField(document.getElementById('loader-petals'), {
   mode: 'vortex',
-  palette: 'glow',
-  glow: true,
-  density: 0.00022,
-  minSize: 12,
-  maxSize: 40,
-  speed: 1.15,
+  palette: 'light',
+  density: 0.00016,
+  minSize: 10,
+  maxSize: 32,
+  speed: 0.95,
 });
 loaderField.start();
 
@@ -74,7 +94,7 @@ function tick() {
   const shown = Math.min(99, Math.floor(progress));
   pctEl.textContent = shown;
   fill.style.width = shown + '%';
-  ring.style.strokeDashoffset = 490 - (490 * shown) / 100;
+  drawHolo(shown / 100);
 
   for (const [at, text] of STATUSES) {
     if (shown >= at) statusEl.textContent = text;
@@ -91,19 +111,26 @@ function tick() {
 function finish() {
   pctEl.textContent = '100';
   fill.style.width = '100%';
-  ring.style.strokeDashoffset = 0;
+  drawHolo(1);
 
-  if (reduced) { reveal(); return; }
+  if (reduced) {
+    loader.classList.add('is-gone');
+    loaderField.destroy();
+    reveal();
+    return;
+  }
 
+  // The page beneath is the same paper colour, so there is nothing to wipe
+  // to — the loader lifts away and fades while the petals scatter.
   loaderField.explode();
   setTimeout(() => {
-    loader.classList.add('is-washing');
+    loader.classList.add('is-leaving');
     reveal();
-  }, 420);
+  }, 460);
   setTimeout(() => {
     loader.classList.add('is-gone');
     loaderField.destroy();
-  }, 1650);
+  }, 1700);
 }
 
 function reveal() {
