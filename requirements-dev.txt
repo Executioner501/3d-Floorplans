@@ -1,0 +1,42 @@
+# FULL local development set: the runtime deps plus everything needed for
+# the ultralytics detector, the diffusion engine, training, and previews.
+#
+#   pip install -r requirements-dev.txt
+#
+# `requirements.txt` alone is the deployment set (see the note there).
+#
+# NOTE for GPU training: install torch FIRST from the CUDA index that matches
+# your card, otherwise pip pulls the CPU wheel. Blackwell cards (RTX 50-series,
+# sm_120) need cu128 or newer — cu121/cu124 will not run:
+#
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#
+# Verify:  python -c "import torch; print(torch.cuda.is_available())"
+
+-r requirements.txt
+
+# ── Detection (training + .pt inference + ONNX export) ──────────────
+ultralytics==8.4.37
+torch==2.11.0             # see the CUDA note above
+torchvision==0.26.0
+onnx==1.22.0              # only needed to run the ONNX export
+
+# ── Diffusion engine & geometry extras ──────────────────────────────
+scipy==1.15.3             # ndimage filters in mesh_from_heightmap
+tqdm==4.67.3
+pyglet==1.5.31            # trimesh.show() viewer
+
+# ── Rendering & reporting ───────────────────────────────────────────
+matplotlib==3.10.8        # galleries, heightmap previews, preview_render.py
+
+# ── Optional: LLM roof designer (ENGINE = "llm") ────────────────────
+google-generativeai==0.8.6
+python-dotenv==1.2.2
+
+# ── Optional: sharper hip/valley triangulation ──────────────────────
+# roof_generator falls back to earcut if this is absent.
+triangle
+
+# ── Optional: exact scale from printed plan dimensions ──────────────
+# Also needs the Tesseract binary on PATH.
+# pytesseract

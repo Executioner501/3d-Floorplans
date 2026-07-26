@@ -1,48 +1,23 @@
-# Construct-AI — direct dependencies only.
-# (This file previously contained two concatenated `pip freeze` dumps with
-#  ~15 packages listed twice; transitive deps are left to the resolver.)
+# RUNTIME dependencies — this is what Vercel installs for api/generate.py.
 #
-#   pip install -r requirements.txt
+# Keep this file minimal. It is deliberately torch-free: ultralytics + torch
+# is ~4 GB installed and cannot fit in a serverless bundle, so detection runs
+# through ONNX Runtime instead (see detect_onnx.py). Measured Linux cp312
+# wheels total ~48 MB compressed, well inside Vercel's 250 MB unzipped limit.
 #
-# NOTE for GPU training: install torch FIRST from the CUDA index that
-# matches your card, otherwise pip pulls the CPU wheel. Blackwell cards
-# (RTX 50-series, sm_120) need cu128 or newer — cu121/cu124 will not run:
+# For local development, training, or the diffusion engine, install the full
+# set instead:
 #
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-#
-# Verify:  python -c "import torch; print(torch.cuda.is_available())"
+#     pip install -r requirements-dev.txt
 
-# ── Geometry & math (core pipeline) ─────────────────────────────────
+# ── Detection ───────────────────────────────────────────────────────
+onnxruntime==1.28.0       # CPU build. NOT onnxruntime-gpu (298 MB, needs CUDA)
+pillow==12.2.0
+
+# ── Geometry ────────────────────────────────────────────────────────
 numpy==2.2.6
-scipy==1.15.3
 shapely==2.1.2
 trimesh==4.11.5
 networkx==3.4.2           # trimesh graph ops
-mapbox-earcut==2.0.0      # polygon triangulation fallback
-manifold3d==3.4.1         # boolean backend — required to cut door/window
-                          # openings out of the wall solids
-pyglet==1.5.31            # trimesh.show() viewer (optional at runtime)
-
-# ── Vision ──────────────────────────────────────────────────────────
-ultralytics==8.4.37       # YOLO wall/door/window detector
-torch==2.11.0             # see the CUDA note above
-torchvision==0.26.0
-Pillow==12.2.0
-
-# ── Rendering & reporting ───────────────────────────────────────────
-matplotlib==3.10.8        # galleries, heightmap previews, preview_render.py
-tqdm==4.67.3
-
-# ── Optional: LLM roof designer (ENGINE = "llm") ────────────────────
-# Not needed for the default RAG engine, which runs fully offline.
-google-generativeai==0.8.6
-python-dotenv==1.2.2
-
-# ── Optional: sharper hip/valley triangulation ──────────────────────
-# roof_generator falls back to earcut if this is absent.
-triangle
-
-# ── Optional: exact scale from printed plan dimensions ──────────────
-# Also needs the Tesseract binary on PATH. Without it, scale_utils
-# normalises the long side to TARGET_LONG_M instead.
-# pytesseract
+mapbox-earcut==2.0.0      # polygon triangulation
+manifold3d==3.4.1         # boolean backend for the door/window openings

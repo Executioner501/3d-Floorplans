@@ -1,0 +1,28 @@
+# Keep the serverless bundle small — none of this is needed at runtime.
+venv/
+__pycache__/
+.pytest_cache/
+
+# Training-only: the diffusion engine cannot run on Vercel (needs torch).
+ml_roof_diffusion/
+ckpt/
+synthetic_cache/
+datasets/
+check_poznan.py
+kb_mining.py
+demo_roofs.py
+preview_render.py
+main.py
+ask_gemini.py
+devserver.py
+tests/
+
+# The .pt weights are superseded by best_doors.onnx at runtime.
+best_doors.pt
+
+# Docs and dev-only assets.
+docs/
+requirements-dev.txt
+README.md
+*.jpg
+floorplan.png

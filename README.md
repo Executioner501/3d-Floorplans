@@ -93,10 +93,12 @@ git clone https://github.com/Executioner501/3d-Floorplans.git
 cd 3d-Floorplans
 python -m venv venv
 venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
-On macOS/Linux the activate line is `source venv/bin/activate`.
+On macOS/Linux the activate line is `source venv/bin/activate`. Use
+`requirements-dev.txt` for local work — plain `requirements.txt` is the
+trimmed runtime set the deployment installs (see [The web app](#the-web-app)).
 
 Put your plan at `floorplan.png` (a sample is included) and run:
 
@@ -139,17 +141,78 @@ For the LLM engine, copy `.env.example` to `.env` and add your key.
 
 ---
 
+## The web app
+
+A deployable front end lives in `public/`, with the pipeline exposed as a
+serverless function at `api/generate.py`. Run it locally exactly as it deploys:
+
+```bash
+python devserver.py
+```
+
+Then open <http://localhost:3000>. The landing page explains the pipeline;
+`/viewer.html` takes a floor-plan upload and renders the returned GLB in
+three.js.
+
+### How it fits in a serverless bundle
+
+`ultralytics` + `torch` is roughly 4 GB installed and cannot fit in a
+serverless function. It is also unnecessary at inference time: the detector is
+exported to ONNX once, and `detect_onnx.py` runs it through ONNX Runtime with
+only PIL and numpy alongside.
+
+```bash
+python -c "from ultralytics import YOLO; \
+           YOLO('best_doors.pt').export(format='onnx', imgsz=640, simplify=True)"
+```
+
+Measured Linux `cp312` wheels for the runtime set total ~48 MB compressed
+(onnxruntime 19, numpy 16, pillow 7, shapely 3, networkx 2, manifold3d 2,
+trimesh 1, mapbox_earcut 1) against a 250 MB uncompressed limit. A request
+costs ~0.6 s of cold imports plus ~0.9 s of work.
+
+Agreement with the `.pt` path on the sample plan: 28 of 30 boxes match at
+IoU > 0.7, median IoU 0.96. The residual difference is the letterbox — the
+export has a fixed 640×640 input so images are padded to a square, while
+ultralytics uses rectangular inference. `snap_openings_to_walls` absorbs it.
+
+**The diffusion engine cannot be deployed** — it needs torch. It stays a local
+tool; `ENGINE="rag"` is what serves requests.
+
+### Deploying
+
+The repository is a Vercel project as-is: `public/` is the static root,
+`api/generate.py` is the function, `vercel.json` wires them together.
+
+```bash
+vercel deploy          # preview
+vercel deploy --prod   # production
+```
+
+`requirements.txt` is deliberately the *runtime* set — that is what Vercel
+installs. Local development, training and the diffusion engine use
+`requirements-dev.txt`, which includes it and adds torch, ultralytics, scipy
+and matplotlib. `.vercelignore` keeps the training code, checkpoints, datasets
+and `.pt` weights out of the bundle.
+
+---
+
 ## Tests
 
 ```bash
-python tests/test_roofs.py
+python tests/test_roofs.py    # roof engine: 352 builds across the whole KB
+python tests/test_api.py      # the deployed path: ONNX detect → GLB
 ```
 
-Builds every knowledge-base exemplar on four footprint archetypes at two
-seeds (352 builds, ~40 s) and asserts that all of them produce geometry, none
+`test_roofs.py` builds every knowledge-base exemplar on four footprint
+archetypes at two seeds (~40 s) and asserts that all produce geometry, none
 trip the coverage self-check, and retrieval stays diverse. Run it before every
 knowledge-base or generator change — a rising repair rate is the earliest
-signal that a composition edit has broken geometry. Works under `pytest` too.
+signal that a composition edit has broken geometry.
+
+`test_api.py` covers what actually serves traffic, including an assertion that
+neither torch nor ultralytics is reachable from the runtime path. Both work
+under `pytest` too.
 
 ---
 
@@ -170,8 +233,9 @@ signal that a composition edit has broken geometry. Works under `pytest` too.
 ## Repository layout
 
 ```
-main.py                 pipeline entry point and configuration
+main.py                 CLI pipeline entry point and configuration
 detect.py               YOLO post-processing: opening snapping, dedupe
+detect_onnx.py          torch-free detection via ONNX Runtime (used in prod)
 scale_utils.py          per-plan px→metre scale (OCR / normalisation)
 roof_ai.py              design layer: style priors, RAG designer, validation
 roof_knowledge.py       44-exemplar composition knowledge base + retriever
@@ -182,8 +246,14 @@ kb_mining.py            mine extra exemplars from 3D house datasets
 preview_render.py       lit PNG preview of any GLB
 demo_roofs.py           synthetic-plan gallery generator
 check_poznan.py         PoznanRD dataset verifier
-ml_roof_diffusion/      diffusion training pipeline (dataset/model/train/sample)
-tests/test_roofs.py     regression harness
+ml_roof_diffusion/      diffusion training pipeline (local only, needs torch)
+
+api/generate.py         serverless function: image in, GLB + stats out
+public/                 the front end (landing page + three.js viewer)
+devserver.py            runs public/ + api/ locally the way Vercel routes them
+vercel.json             function config and cache headers
+
+tests/                  regression harness (roof engine + deployed path)
 docs/                   run guide, roadmap, engineering notes, galleries
 ```
 
