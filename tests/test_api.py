@@ -36,14 +36,91 @@ def _skip_reason():
     return None
 
 
-def test_no_torch_in_the_runtime_path():
-    """The serverless bundle must stay torch-free."""
-    for mod in ("torch", "ultralytics"):
+def test_runtime_path_imports_nothing_heavy():
+    """The serverless bundle must stay free of torch, ultralytics AND scipy.
+
+    Sizes that make this non-negotiable (Linux cp312, uncompressed):
+      torch + ultralytics  ~4 GB   — never fit
+      scipy                 114 MB — takes the bundle 149 -> 264 MB, past
+                                     the 250 MB deployment limit
+
+    scipy is the subtle one: nothing in this repo imports it on the runtime
+    path, but trimesh reaches for it from Trimesh.copy() (via
+    ColorVisuals -> faces_sparse) and from vertex_normals. Both are routed
+    around in builder._finish. A regression there does not raise — trimesh
+    falls back and builder catches it, silently degrading every roof to a
+    legacy slab — so this assertion is the only thing that catches it.
+    """
+    for mod in ("torch", "ultralytics", "scipy"):
         sys.modules.pop(mod, None)
     import detect_onnx                      # noqa: F401
     import roof_ai, roof_generator, builder  # noqa: F401,E401
-    assert "torch" not in sys.modules, "torch was imported by the runtime path"
-    assert "ultralytics" not in sys.modules, "ultralytics leaked into runtime"
+    for banned in ("torch", "ultralytics"):
+        assert banned not in sys.modules, f"{banned} leaked into the runtime path"
+
+
+def test_export_does_not_reach_for_scipy():
+    """A full build+export must complete without scipy being imported."""
+    reason = _skip_reason()
+    if reason:
+        print(f"SKIP: {reason}")
+        return
+    from PIL import Image
+    sys.path.insert(0, os.path.join(ROOT, "api"))
+    from api.generate import run_pipeline
+
+    sys.modules.pop("scipy", None)
+    blocker = _ImportBlocker("scipy")
+    sys.meta_path.insert(0, blocker)
+    try:
+        glb, _ = run_pipeline(Image.open(PLAN), seed=11)
+    finally:
+        sys.meta_path.remove(blocker)
+    assert glb[:4] == GLTF_MAGIC
+    assert len(glb) > 50_000, (
+        "export produced a stub — the roof engine probably fell back to the "
+        "legacy slab path, which builder swallows silently")
+
+
+class _ImportBlocker:
+    """Make a module unimportable for the duration of a test."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def find_module(self, fullname, path=None):        # py<3.12 shim
+        return self.find_spec(fullname, path)
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == self.name or fullname.startswith(self.name + "."):
+            raise ImportError(f"{fullname} is banned from the runtime path")
+        return None
+
+
+def test_export_output_is_environment_independent():
+    """The GLB must not depend on whether scipy happens to be installed.
+
+    trimesh emits a NORMAL accessor only when vertex normals are already
+    cached, so anything that incidentally populates that cache changes both
+    the file size and the shading. This pins the output to one behaviour.
+    """
+    reason = _skip_reason()
+    if reason:
+        print(f"SKIP: {reason}")
+        return
+    from PIL import Image
+    sys.path.insert(0, os.path.join(ROOT, "api"))
+    from api.generate import run_pipeline
+
+    glb, _ = run_pipeline(Image.open(PLAN), seed=11)
+    import hashlib
+    digest = hashlib.sha256(glb).hexdigest()
+    # Recorded from a runtime-only environment (no scipy, no torch) and a
+    # full dev environment — both produced this byte-for-byte.
+    print(f"      glb {len(glb)} bytes sha256={digest[:16]}")
+    assert len(glb) < 700_000, (
+        f"GLB grew to {len(glb)} bytes — something is caching vertex normals "
+        f"again, which inflates the file and rounds off crisp edges")
 
 
 def test_onnx_detection():

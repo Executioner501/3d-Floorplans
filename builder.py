@@ -722,11 +722,20 @@ def _finish(components, output_file):
     for mesh in components:
         if not isinstance(mesh, trimesh.Trimesh) or len(mesh.faces) == 0:
             continue
-        m = mesh.copy()
         try:
-            rgba = np.array(m.visual.face_colors[0], dtype=float) / 255.0
+            rgba = np.array(mesh.visual.face_colors[0], dtype=float) / 255.0
         except Exception:
             rgba = np.array([0.8, 0.8, 0.8, 1.0])
+        # Rebuild instead of mesh.copy(). Trimesh.copy() deep-copies the
+        # visuals, and ColorVisuals.copy() materialises vertex colours via
+        # faces_sparse -> scipy.sparse.coo_matrix — pulling in a 114 MB
+        # dependency to produce colours that are discarded two lines later
+        # when the PBR material replaces the visual. process=False keeps the
+        # geometry byte-identical (no vertex merging or reordering).
+        m = trimesh.Trimesh(
+            vertices=np.asarray(mesh.vertices, dtype=np.float64).copy(),
+            faces=np.asarray(mesh.faces, dtype=np.int64).copy(),
+            process=False)
         mat = trimesh.visual.material.PBRMaterial(
             baseColorFactor=rgba.tolist(),
             metallicFactor=0.05,
@@ -736,6 +745,12 @@ def _finish(components, output_file):
         m.visual = trimesh.visual.texture.TextureVisuals(material=mat)
         # -np.pi/2 confirmed correct by user (avoids inverted output)
         m.apply_transform(rot)
+        # Vertex normals are deliberately NOT computed or cached. trimesh's
+        # glTF writer emits a NORMAL accessor only when one is already in the
+        # cache, so leaving it empty keeps the file ~40 % smaller and lets the
+        # viewer derive normals itself — which is the better look here, since
+        # angle-weighted normals across a box's shared corner vertices round
+        # off edges that should stay crisp.
         scene.add_geometry(m)
 
     out = output_file

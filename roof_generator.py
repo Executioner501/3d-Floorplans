@@ -258,7 +258,12 @@ def _prism_from_profile(profile_xy, length, color):
                   [0, 1, 0, 0],
                   [0, 0, 0, 1]], dtype=float)
     mesh.apply_transform(T)
-    mesh.fix_normals()
+    # multibody=False is correct here — an extruded prism is one body by
+    # construction — and it is also load-bearing for deployment: leaving it
+    # to trimesh calls Trimesh.body_count, which goes through
+    # scipy.sparse.csgraph. scipy is 114 MB uncompressed and would push the
+    # serverless bundle from 149 MB to 264 MB, past the 250 MB limit.
+    mesh.fix_normals(multibody=False)
     return _colored(mesh, color)
 
 
