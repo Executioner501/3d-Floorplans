@@ -1,14 +1,22 @@
-# RUNTIME dependencies — this is what Vercel installs for api/generate.py.
+# RUNTIME dependencies — must stay in sync with [project.dependencies] in
+# pyproject.toml, which is what Vercel actually installs (it resolves with
+# `uv lock`, and once a pyproject.toml exists this file is no longer read).
+# Kept for local installs and for anyone not using uv.
 #
-# Keep this file minimal. It is deliberately torch-free: ultralytics + torch
-# is ~4 GB installed and cannot fit in a serverless bundle, so detection runs
-# through ONNX Runtime instead (see detect_onnx.py). Measured Linux cp312
-# wheels total ~48 MB compressed, well inside Vercel's 250 MB unzipped limit.
-#
-# For local development, training, or the diffusion engine, install the full
-# set instead:
+# For local development, training, or the diffusion engine:
 #
 #     pip install -r requirements-dev.txt
+#
+# Deliberately torch-free AND scipy-free. Measured Linux cp312 wheels,
+# uncompressed — the deployment limit is 250 MB:
+#
+#     this set          149 MB
+#     + scipy           264 MB   over the limit
+#     + torch stack      ~4 GB   never a possibility
+#
+# scipy is avoidable but not by accident: trimesh reaches for it from
+# Trimesh.copy() and from vertex_normals. builder._finish routes around both.
+# tests/test_api.py fails if either creeps back.
 
 # ── Detection ───────────────────────────────────────────────────────
 onnxruntime==1.28.0       # CPU build. NOT onnxruntime-gpu (298 MB, needs CUDA)

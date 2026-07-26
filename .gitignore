@@ -7,6 +7,11 @@ venv/
 .venv/
 env/
 
+# uv resolves this itself during the Vercel build. Not committed on purpose:
+# a lockfile written by a newer uv than the platform's can be rejected by it,
+# and the dependency set here is fully pinned in pyproject.toml anyway.
+uv.lock
+
 # ── Secrets ─────────────────────────────────────────────────────────
 .env
 *.key

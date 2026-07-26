@@ -166,10 +166,34 @@ python -c "from ultralytics import YOLO; \
            YOLO('best_doors.pt').export(format='onnx', imgsz=640, simplify=True)"
 ```
 
-Measured Linux `cp312` wheels for the runtime set total ~48 MB compressed
-(onnxruntime 19, numpy 16, pillow 7, shapely 3, networkx 2, manifold3d 2,
-trimesh 1, mapbox_earcut 1) against a 250 MB uncompressed limit. A request
-costs ~0.6 s of cold imports plus ~0.9 s of work.
+### Staying under the size limit
+
+Vercel allows 250 MB uncompressed per function. Measured Linux `cp312` wheels:
+
+| | uncompressed |
+|---|---|
+| runtime set (8 packages) | 156 MB |
+| `best_doors.onnx` | 12 MB |
+| code + static assets | ~30 MB |
+| **total** | **~198 MB** |
+
+Two dependencies are excluded deliberately, and neither is optional by accident:
+
+- **torch + ultralytics** (~4 GB) — replaced by ONNX Runtime, above.
+- **scipy** (114 MB) — would take the bundle to 264 MB, past the limit.
+  Nothing here imports scipy, but *trimesh* reaches for it in two places on
+  the export path: `Trimesh.copy()` materialises vertex colours through
+  `faces_sparse`, and `vertex_normals` accumulates through a sparse matrix.
+  `builder._finish` routes around both — it rebuilds each mesh instead of
+  copying it (the visual is replaced by a PBR material anyway) and never
+  populates the normals cache.
+
+That second one fails **silently** if it regresses: trimesh falls back,
+`builder` catches the ImportError, and every roof quietly degrades to a legacy
+slab. `tests/test_api.py` blocks the import and asserts a real build still
+succeeds, which is the only thing that catches it.
+
+A request costs ~0.6 s of cold imports plus ~0.9 s of work.
 
 Agreement with the `.pt` path on the sample plan: 28 of 30 boxes match at
 IoU > 0.7, median IoU 0.96. The residual difference is the letterbox — the
@@ -184,21 +208,48 @@ tool; `ENGINE="rag"` is what serves requests.
 The repository is a Vercel project as-is: `public/` is the static root,
 `api/generate.py` is the function, `vercel.json` wires them together.
 
-Vercel's Python runtime resolves a **single entrypoint**, discovered from
-default locations (`index.py`, `app.py`, `main.py`, …). This project's root
-`main.py` is the offline CLI, not a web app — and `.vercelignore` strips it —
-so the entrypoint is declared explicitly in `pyproject.toml`:
+Three things about the Python runtime matter, because each is a build failure
+if you get it wrong:
+
+1. **The entrypoint must be declared.** Vercel resolves a *single* entrypoint
+   from default locations (`index.py`, `app.py`, `main.py`, …). This project's
+   root `main.py` is the offline CLI, not a web app, and `.vercelignore` strips
+   it — so nothing is discoverable and the build fails with *"No python
+   entrypoint found in default locations"*.
+2. **Dependencies move to `pyproject.toml`.** The build resolves with
+   `uv lock`, and once a `pyproject.toml` exists `requirements.txt` is no
+   longer read. A `[project]` table is mandatory — `uv lock` fails with
+   *"No `project` table found"* without one.
+3. **`[tool.uv] package = false`.** This is an application, not a library;
+   without it uv tries to build the project itself and wants a
+   `[build-system]`.
 
 ```toml
+[project]
+name = "construct-ai"
+version = "1.0.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["onnxruntime==1.28.0", "..."]
+
+[tool.uv]
+package = false
+
 [tool.vercel]
 entrypoint = "api.generate:handler"
 ```
 
-Without it the build fails with *"No python entrypoint found in default
-locations"*. The handler routes on path (`POST …/generate`, plus
-`GET /api/health` for checking a deployment without sending an image), so it
-behaves correctly whether the platform routes only `/api/*` to it or hands it
-unmatched routes as well.
+The handler routes on path — `POST …/generate`, `GET /api/health`, and static
+files out of `public/` — so it works whether the platform routes only `/api/*`
+to it or hands it unmatched routes as well.
+
+Check a deployment without uploading anything:
+
+```bash
+curl https://<deployment>/api/health
+```
+
+`{"ok": true, "model": true, "static": true}` confirms the ONNX weights and
+static assets both made it into the bundle.
 
 ```bash
 vercel deploy          # preview

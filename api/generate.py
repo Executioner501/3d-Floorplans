@@ -19,13 +19,16 @@ read-only serverless filesystem:
 import base64
 import io
 import json
+import mimetypes
 import os
+import posixpath
 import sys
 import tempfile
 import traceback
 
 # The pipeline modules live at the repository root, one level up.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 from http.server import BaseHTTPRequestHandler   # noqa: E402
 
@@ -34,9 +37,12 @@ MAX_EDGE = 2400                          # downscale huge plans before detect
 
 # Reported by the health check so a deploy that dropped the weights from the
 # bundle is diagnosable without sending an image through.
-_MODEL_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "best_doors.onnx")
+_MODEL_PATH = os.path.join(ROOT, "best_doors.onnx")
+
+# Static root. Vercel normally serves these from the CDN and they never reach
+# the function, but the Python runtime can hand unmatched routes to the
+# entrypoint. Serving them here too means the site works either way.
+PUBLIC = os.path.join(ROOT, "public")
 
 
 def _load_image(data_url):
@@ -147,14 +153,59 @@ class handler(BaseHTTPRequestHandler):
         self.send_header("Allow", "GET, POST, OPTIONS")
         self.end_headers()
 
+    def _static_path(self, route):
+        """Resolve a URL path to a file under public/, or None.
+
+        Rejects anything that escapes PUBLIC after normalisation — `..`
+        segments and absolute paths included — so a request can never read
+        the pipeline source or the model weights.
+        """
+        if not os.path.isdir(PUBLIC):
+            return None
+        rel = posixpath.normpath(route.lstrip("/"))
+        if rel in ("", ".", "/"):
+            rel = "index.html"
+        if rel.startswith("..") or os.path.isabs(rel):
+            return None
+        target = os.path.realpath(os.path.join(PUBLIC, *rel.split("/")))
+        if os.path.commonpath([target, os.path.realpath(PUBLIC)]) != \
+                os.path.realpath(PUBLIC):
+            return None
+        if os.path.isdir(target):
+            target = os.path.join(target, "index.html")
+        if not os.path.isfile(target):
+            # Vercel serves /viewer and /viewer.html interchangeably
+            alt = target + ".html"
+            if os.path.isfile(alt):
+                return alt
+            return None
+        return target
+
+    def _send_file(self, path):
+        ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        if ctype.startswith("text/") or ctype in (
+                "application/javascript", "application/json"):
+            ctype += "; charset=utf-8"
+        with open(path, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
-        # Static assets are served from public/ by the CDN and normally never
-        # reach here. Under a single-entrypoint runtime this function can
-        # still be handed unmatched routes, so answer rather than 500.
-        if self._route() in ("/api/health", "/health"):
+        route = self._route()
+        if route in ("/api/health", "/health"):
             return self._send(200, {"ok": True,
                                     "model": os.path.exists(_MODEL_PATH),
+                                    "static": os.path.isdir(PUBLIC),
                                     "endpoint": "POST /api/generate"})
+        if route.startswith("/api/"):
+            return self._send(404, {"error": "not found"})
+        target = self._static_path(route)
+        if target:
+            return self._send_file(target)
         self._send(404, {"error": "not found"})
 
     def do_POST(self):

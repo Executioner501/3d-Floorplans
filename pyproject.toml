@@ -1,11 +1,43 @@
-# Vercel's Python runtime resolves ONE entrypoint. It looks in default
-# locations (index.py, app.py, main.py, server.py …); this project's root
-# `main.py` is the offline CLI pipeline, not a web app, and is stripped by
-# .vercelignore anyway — so the web entrypoint has to be declared explicitly.
+# Vercel's Python build resolves dependencies with `uv lock`. Once a
+# pyproject.toml exists it becomes the source of truth and requirements.txt is
+# no longer read — so the runtime dependency set has to live HERE, and a
+# [project] table is mandatory (`uv lock` fails outright without one).
 #
-# Deps still come from requirements.txt (the runtime set). No [project] table
-# here on purpose: adding one changes how the platform resolves dependencies,
-# and requirements.txt is already the documented source.
+# requirements.txt is kept in sync for local installs and for anyone not using
+# uv; requirements-dev.txt adds torch, ultralytics, scipy and matplotlib for
+# training and the diffusion engine, none of which can be deployed.
 
+[project]
+name = "construct-ai"
+version = "1.0.0"
+description = "2D floor plan to 3D house — retrieval-augmented roof generation"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+
+# Deliberately torch-free. ultralytics + torch is ~4 GB installed and cannot
+# fit a serverless bundle; detection runs through ONNX Runtime instead (see
+# detect_onnx.py). These are the exact versions whose Linux cp312 wheels were
+# measured at ~48 MB compressed, against a 250 MB uncompressed limit.
+dependencies = [
+    "onnxruntime==1.28.0",   # CPU build. NOT onnxruntime-gpu (298 MB, CUDA)
+    "pillow==12.2.0",
+    "numpy==2.2.6",
+    "shapely==2.1.2",
+    "trimesh==4.11.5",
+    "networkx==3.4.2",       # trimesh graph ops
+    "mapbox-earcut==2.0.0",  # polygon triangulation
+    "manifold3d==3.4.1",     # boolean backend for door/window openings
+]
+
+# This is an application, not a distributable library: install the
+# dependencies but do not try to build the project itself. Without this uv
+# looks for a [build-system] and fails when it cannot find one.
+[tool.uv]
+package = false
+
+# Vercel's Python runtime resolves a SINGLE entrypoint from default locations
+# (index.py, app.py, main.py, ...). This project's root main.py is the offline
+# CLI pipeline, not a web app, and .vercelignore strips it — so the web
+# entrypoint must be declared explicitly.
 [tool.vercel]
 entrypoint = "api.generate:handler"

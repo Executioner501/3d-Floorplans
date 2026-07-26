@@ -1,13 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "outputDirectory": "public",
-  "functions": {
-    "api/generate.py": {
-      "memory": 2048,
-      "maxDuration": 60,
-      "includeFiles": "{best_doors.onnx,door.obj,detect.py,detect_onnx.py,scale_utils.py,roof_ai.py,roof_generator.py,roof_knowledge.py,builder.py}"
-    }
-  },
   "headers": [
     {
       "source": "/api/(.*)",
