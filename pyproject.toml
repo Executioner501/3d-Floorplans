@@ -1,0 +1,11 @@
+# Vercel's Python runtime resolves ONE entrypoint. It looks in default
+# locations (index.py, app.py, main.py, server.py …); this project's root
+# `main.py` is the offline CLI pipeline, not a web app, and is stripped by
+# .vercelignore anyway — so the web entrypoint has to be declared explicitly.
+#
+# Deps still come from requirements.txt (the runtime set). No [project] table
+# here on purpose: adding one changes how the platform resolves dependencies,
+# and requirements.txt is already the documented source.
+
+[tool.vercel]
+entrypoint = "api.generate:handler"

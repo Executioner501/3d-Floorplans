@@ -32,6 +32,12 @@ from http.server import BaseHTTPRequestHandler   # noqa: E402
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024      # 8 MB of decoded image
 MAX_EDGE = 2400                          # downscale huge plans before detect
 
+# Reported by the health check so a deploy that dropped the weights from the
+# bundle is diagnosable without sending an image through.
+_MODEL_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "best_doors.onnx")
+
 
 def _load_image(data_url):
     from PIL import Image
@@ -116,12 +122,45 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _route(self):
+        """Path without query string, trailing slash removed."""
+        return self.path.split("?", 1)[0].rstrip("/") or "/"
+
+    def _drain(self):
+        """Consume the request body before answering.
+
+        Replying to a POST without reading its body makes the client see a
+        connection reset instead of the status code that explains why.
+        """
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            while n > 0:
+                chunk = self.rfile.read(min(n, 65536))
+                if not chunk:
+                    break
+                n -= len(chunk)
+        except Exception:
+            pass
+
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Allow", "POST, OPTIONS")
+        self.send_header("Allow", "GET, POST, OPTIONS")
         self.end_headers()
 
+    def do_GET(self):
+        # Static assets are served from public/ by the CDN and normally never
+        # reach here. Under a single-entrypoint runtime this function can
+        # still be handed unmatched routes, so answer rather than 500.
+        if self._route() in ("/api/health", "/health"):
+            return self._send(200, {"ok": True,
+                                    "model": os.path.exists(_MODEL_PATH),
+                                    "endpoint": "POST /api/generate"})
+        self._send(404, {"error": "not found"})
+
     def do_POST(self):
+        if not self._route().endswith("/generate"):
+            self._drain()
+            return self._send(404, {"error": "not found"})
         try:
             length = int(self.headers.get("Content-Length") or 0)
             if length <= 0 or length > 12 * 1024 * 1024:

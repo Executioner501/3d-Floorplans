@@ -184,6 +184,22 @@ tool; `ENGINE="rag"` is what serves requests.
 The repository is a Vercel project as-is: `public/` is the static root,
 `api/generate.py` is the function, `vercel.json` wires them together.
 
+Vercel's Python runtime resolves a **single entrypoint**, discovered from
+default locations (`index.py`, `app.py`, `main.py`, …). This project's root
+`main.py` is the offline CLI, not a web app — and `.vercelignore` strips it —
+so the entrypoint is declared explicitly in `pyproject.toml`:
+
+```toml
+[tool.vercel]
+entrypoint = "api.generate:handler"
+```
+
+Without it the build fails with *"No python entrypoint found in default
+locations"*. The handler routes on path (`POST …/generate`, plus
+`GET /api/health` for checking a deployment without sending an image), so it
+behaves correctly whether the platform routes only `/api/*` to it or hands it
+unmatched routes as well.
+
 ```bash
 vercel deploy          # preview
 vercel deploy --prod   # production

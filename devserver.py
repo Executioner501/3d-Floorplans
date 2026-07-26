@@ -24,10 +24,15 @@ class DevHandler(GenerateHandler, SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=PUBLIC, **kw)
 
+    # Routing is delegated to the production handler rather than duplicated
+    # here, so what works locally is what works deployed.
     def do_POST(self):
-        if self.path.rstrip("/") == "/api/generate":
-            return GenerateHandler.do_POST(self)
-        self.send_error(404, "no such endpoint")
+        return GenerateHandler.do_POST(self)
+
+    def do_GET(self):
+        if self._route().startswith("/api/"):
+            return GenerateHandler.do_GET(self)
+        return SimpleHTTPRequestHandler.do_GET(self)
 
     # Vercel serves /foo and /foo.html interchangeably.
     def translate_path(self, path):
