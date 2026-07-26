@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Construct-AI — floor plans become architecture</title>
+<meta name="description" content="Turn a 2D floor plan into a 3D house. A retrieval-augmented roof engine picks a real architectural composition that fits your footprint.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌸</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/landing.css">
+</head>
+<body class="is-loading">
+
+<!-- ══════════════ LOADING ══════════════ -->
+<div id="loader" class="loader">
+  <canvas id="loader-petals" class="loader__petals"></canvas>
+
+  <div class="loader__core">
+    <svg class="enso" viewBox="0 0 200 200" aria-hidden="true">
+      <defs>
+        <linearGradient id="ensoGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%"   stop-color="#FFD7E4"/>
+          <stop offset="55%"  stop-color="#F58FB4"/>
+          <stop offset="100%" stop-color="#C96A87"/>
+        </linearGradient>
+      </defs>
+      <circle class="enso__ring" cx="100" cy="100" r="78"
+              fill="none" stroke="url(#ensoGrad)" stroke-width="3.5"
+              stroke-linecap="round"/>
+    </svg>
+
+    <div class="loader__glyph" aria-hidden="true">桜</div>
+
+    <div class="loader__meta">
+      <div class="loader__title">CONSTRUCT&#8202;-&#8202;AI</div>
+      <div class="loader__bar"><i id="loader-fill"></i></div>
+      <div class="loader__pct"><span id="loader-pct">0</span><b>%</b></div>
+      <div class="loader__status" id="loader-status">建築を準備しています</div>
+    </div>
+  </div>
+
+  <div class="loader__vert" aria-hidden="true">間取り図から建築へ</div>
+  <div class="loader__wash"></div>
+</div>
+
+<!-- ══════════════ PAGE ══════════════ -->
+<canvas id="page-petals" class="page-petals" aria-hidden="true"></canvas>
+
+<!-- scroll progress: a branch that blossoms as you descend -->
+<div class="branch" aria-hidden="true">
+  <svg viewBox="0 0 40 600" preserveAspectRatio="none">
+    <path id="branch-path" d="M20 0 C 26 90, 12 150, 20 240 C 28 330, 12 400, 20 490 C 26 545, 18 570, 20 600"
+          fill="none" stroke="#C9A0AE" stroke-width="1.6" stroke-linecap="round"/>
+  </svg>
+  <span class="branch__bud" style="--t:.18"></span>
+  <span class="branch__bud" style="--t:.38"></span>
+  <span class="branch__bud" style="--t:.58"></span>
+  <span class="branch__bud" style="--t:.78"></span>
+  <span class="branch__bud" style="--t:.94"></span>
+</div>
+
+<main id="page" class="page">
+
+  <!-- ── hero ── -->
+  <section class="hero">
+    <div class="hero__inner">
+      <p class="eyebrow reveal">2D 間取り図 → 3D 建築</p>
+      <h1 class="hero__title reveal" data-delay="1">
+        <span>Floor plans</span>
+        <span class="ink">become</span>
+        <span class="accent">architecture.</span>
+      </h1>
+      <p class="hero__lede reveal" data-delay="2">
+        Upload a floor plan. A detector reads the walls, a retrieval engine
+        chooses a real architectural composition that fits the footprint, and
+        a geometry engine builds it — watertight, in metres, in about a second.
+      </p>
+      <div class="hero__cta reveal" data-delay="3">
+        <a class="btn btn--primary" href="/viewer.html">Open the viewer</a>
+        <a class="btn btn--ghost" href="#how">See how it works</a>
+      </div>
+    </div>
+    <div class="hero__vert" aria-hidden="true">桜 · 建築知能</div>
+    <div class="scroll-hint" aria-hidden="true"><i></i><span>SCROLL</span></div>
+  </section>
+
+  <!-- ── steps ── -->
+  <section class="step" id="how">
+    <div class="step__grid">
+      <div class="step__text reveal">
+        <span class="step__num">01</span>
+        <h2 class="step__kanji">検出</h2>
+        <h3 class="step__title">Detection</h3>
+        <p>
+          A YOLOv8 detector trained on 5,000 annotated CubiCasa5k plans finds
+          every wall, door and window. Raw boxes are noisy, so each opening is
+          snapped to its nearest wall, re-oriented along that wall's axis, and
+          de-duplicated — the detector often emits two boxes for one door.
+        </p>
+        <p class="step__note">Strays more than 45 px from any wall are discarded.</p>
+      </div>
+      <figure class="step__media reveal" data-delay="1">
+        <img src="/img/detect.png" alt="A 2D architectural floor plan, the input to the pipeline" loading="lazy">
+      </figure>
+    </div>
+  </section>
+
+  <section class="step step--alt">
+    <div class="step__grid step__grid--flip">
+      <div class="step__text reveal">
+        <span class="step__num">02</span>
+        <h2 class="step__kanji">尺度</h2>
+        <h3 class="step__title">Scale</h3>
+        <p>
+          Pixels mean nothing until they mean metres. The scale is derived per
+          plan — from printed dimension text when it can be read, otherwise by
+          normalising the longest side to a realistic house width.
+        </p>
+        <p class="step__note">
+          One scale flows through every stage after it, so walls stay 3 m tall
+          whatever resolution the drawing arrived at.
+        </p>
+      </div>
+      <figure class="step__media reveal" data-delay="1">
+        <img src="/img/scale.png" alt="Walls extruded to three metres from the same plan, before any roof is added" loading="lazy">
+      </figure>
+    </div>
+  </section>
+
+  <section class="step">
+    <div class="step__grid">
+      <div class="step__text reveal">
+        <span class="step__num">03</span>
+        <h2 class="step__kanji">検索</h2>
+        <h3 class="step__title">Retrieval</h3>
+        <p>
+          Rather than asking a language model to invent a roof, the engine
+          retrieves one. A library of <strong>44 architectural compositions</strong>
+          — opposing skillions with a clerestory band, cross-gables with a
+          portico, stacked modernist volumes — is scored against the measured
+          footprint's aspect, convexity, area and wing count.
+        </p>
+        <p class="step__note">
+          The top candidates are sampled with temperature, so the same plan
+          yields a different, still-appropriate house each run.
+        </p>
+      </div>
+      <figure class="step__media reveal" data-delay="1">
+        <img src="/img/compositions.png" alt="Variations of roof compositions on one floor plan" loading="lazy">
+      </figure>
+    </div>
+  </section>
+
+  <section class="step step--alt">
+    <div class="step__grid step__grid--flip">
+      <div class="step__text reveal">
+        <span class="step__num">04</span>
+        <h2 class="step__kanji">幾何</h2>
+        <h3 class="step__title">Geometry</h3>
+        <p>
+          The retrieved composition is executed by a constrained geometry
+          engine. Hip and valley surfaces come from a distance field, so ridges
+          follow any L, T or U footprint automatically. Openings are boolean-cut
+          from the wall solids and refilled with framed joinery.
+        </p>
+        <p class="step__note">
+          Every roof is then rasterised against its footprint. If more than 3 %
+          is left uncovered, it is rebuilt as a hip — watertight by construction.
+        </p>
+      </div>
+      <figure class="step__media reveal" data-delay="1">
+        <img src="/img/geometry.png" alt="Door and window openings cut through the wall solids and refilled with framed joinery" loading="lazy">
+      </figure>
+    </div>
+  </section>
+
+  <!-- ── numbers ── -->
+  <section class="figures">
+    <div class="figures__row">
+      <div class="figure reveal"><b>44</b><span>compositions</span></div>
+      <div class="figure reveal" data-delay="1"><b>352</b><span>builds tested</span></div>
+      <div class="figure reveal" data-delay="2"><b>0</b><span>failures</span></div>
+      <div class="figure reveal" data-delay="3"><b>~1s</b><span>per house</span></div>
+    </div>
+  </section>
+
+  <!-- ── explore ── -->
+  <section class="explore" id="explore">
+    <div class="explore__petals" aria-hidden="true">
+      <span></span><span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="explore__inner reveal">
+      <figure class="explore__shot">
+        <img src="/img/build.png" alt="A finished 3D house generated from a 2D floor plan" loading="lazy">
+      </figure>
+      <p class="eyebrow">探索</p>
+      <h2>Explore it yourself</h2>
+      <p class="explore__lede">
+        Drop in a floor plan and watch it become a building. No sign-up,
+        nothing stored — the model is generated and handed straight back to you.
+      </p>
+      <a class="btn btn--primary btn--lg" href="/viewer.html">
+        Enter the viewer
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M5 12h14M13 6l6 6-6 6"/>
+        </svg>
+      </a>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>Construct-AI</span>
+    <a href="https://github.com/Executioner501/3d-Floorplans" target="_blank" rel="noopener">Source on GitHub</a>
+  </footer>
+</main>
+
+<script type="module" src="/js/landing.js"></script>
+</body>
+</html>
