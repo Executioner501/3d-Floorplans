@@ -5,11 +5,17 @@ from scale_utils import estimate_scale
 
 # --- CONFIG ---
 INPUT_IMG = "floorplan.png"
-ENGINE    = "rag"     # "rag"   : retrieval-augmented designer (DEFAULT, no API key,
-                      #           retrieves real architectural compositions)
-                      # "llm"   : Gemini designer, validated by roof_ai
-                      # "prior" : pure local footprint-conditioned sampler
+ENGINE    = "rag"     # "rag"     : retrieval-augmented designer (DEFAULT, no
+                      #             API key, retrieves real compositions)
+                      # "compose" : Gemini AUTHORS a new composition in the
+                      #             zone grammar; validated, built and
+                      #             coverage-checked, falling back to "rag"
+                      #             on any failure. Needs GEMINI_API_KEY.
+                      # "llm"     : Gemini picks a single style (older, weaker)
+                      # "prior"   : pure local footprint-conditioned sampler
                       # "diffusion": trained model (needs ml_roof_diffusion ckpt)
+REQUEST   = None      # optional natural language for ENGINE="compose", e.g.
+                      # "modern, with a carport and a clerestory band"
 STYLE_PREF = "mixed"  # "modern" | "traditional" | "mixed"
 SEED       = None     # set an int for reproducible output; None → fresh each run
 RECIPE     = None     # force a specific KB recipe id (e.g. "double_gable_cross",
@@ -49,6 +55,22 @@ def run_pipeline():
                                       style_pref=STYLE_PREF, recipe=RECIPE)
         print(f"🎨 RAG design: {roof_params['recipe_name']} "
               f"({roof_params['material']}, seed {roof_params['seed']})")
+    elif ENGINE == "compose":
+        from roof_llm import design_roof_llm
+        with open(INPUT_IMG, "rb") as f:
+            img_bytes = f.read()
+        roof_params = design_roof_llm(walls, scale=scale, seed=SEED,
+                                      image_bytes=img_bytes, request=REQUEST,
+                                      style_pref=STYLE_PREF)
+        if roof_params["source"] == "llm":
+            print(f"🤖 Gemini composed: {roof_params['recipe_name']} "
+                  f"({len(roof_params['zones'])} zones, "
+                  f"{roof_params['material']})")
+            if roof_params.get("rationale"):
+                print(f"   {roof_params['rationale']}")
+        else:
+            print(f"↩️  Fell back to RAG ({roof_params['llm_note']}): "
+                  f"{roof_params['recipe_name']}")
     elif ENGINE == "llm":
         from roof_ai import design_roof
         roof_params = design_roof(walls, scale=scale, seed=SEED, use_llm=True,

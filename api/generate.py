@@ -45,6 +45,17 @@ _MODEL_PATH = os.path.join(ROOT, "best_doors.onnx")
 PUBLIC = os.path.join(ROOT, "public")
 
 
+def _raw_bytes(data_url):
+    """Decoded upload bytes, for passing the plan image straight to Gemini."""
+    try:
+        if "," in data_url:
+            data_url = data_url.split(",", 1)[1]
+        raw = base64.b64decode(data_url)
+        return raw if len(raw) <= MAX_UPLOAD_BYTES else None
+    except Exception:
+        return None
+
+
 def _load_image(data_url):
     from PIL import Image
     if "," in data_url:
@@ -78,7 +89,8 @@ def _build(walls, doors, windows, params, scale, tag):
             pass
 
 
-def run_pipeline(image, seed=None, style_pref="mixed", recipe=None):
+def run_pipeline(image, seed=None, style_pref="mixed", recipe=None,
+                 request=None, image_bytes=None):
     """Detect -> scale -> design -> build.
 
     Returns (glb, glb_no_roof, stats). The roofless build is the same
@@ -105,9 +117,19 @@ def run_pipeline(image, seed=None, style_pref="mixed", recipe=None):
     # history_file=None: the serverless filesystem is read-only, so the
     # cross-run avoid-list cannot persist. A fresh random seed per request
     # gives the same practical variety.
-    params = design_roof_rag(walls, scale=scale, seed=seed,
-                             style_pref=style_pref, recipe=recipe,
-                             history_file=None)
+    if request and not recipe:
+        # The client asked for a specific design in words, so let Gemini
+        # author a composition. design_roof_llm falls back to exactly the
+        # design_roof_rag call below on any failure, so this can only add.
+        from roof_llm import design_roof_llm
+        params = design_roof_llm(walls, scale=scale, seed=seed,
+                                 image_bytes=image_bytes, request=request,
+                                 style_pref=style_pref)
+    else:
+        params = design_roof_rag(walls, scale=scale, seed=seed,
+                                 style_pref=style_pref, recipe=recipe,
+                                 history_file=None)
+        params.setdefault("source", "rag")
 
     glb = _build(walls, doors, windows, params, scale, f"house_{seed}")
     glb_no_roof = _build(walls, doors, windows, None, scale, f"bare_{seed}")
@@ -128,6 +150,11 @@ def run_pipeline(image, seed=None, style_pref="mixed", recipe=None):
         "area_m2": round(float(m.get("area", 0)), 1),
         "zones": len(params.get("zones", []) or []),
         "size_kb": round(len(glb) / 1024),
+        # which designer actually produced this, so the UI never claims the
+        # LLM designed something the fallback did
+        "source": params.get("source", "rag"),
+        "note": params.get("llm_note"),
+        "rationale": params.get("rationale") or None,
     }
     return glb, glb_no_roof, stats
 
@@ -256,11 +283,14 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             seed = req.get("seed")
+            ask = (req.get("request") or "").strip()[:400] or None
             glb, glb_no_roof, stats = run_pipeline(
                 image,
                 seed=int(seed) if seed not in (None, "") else None,
                 style_pref=req.get("style") or "mixed",
-                recipe=req.get("recipe") or None)
+                recipe=req.get("recipe") or None,
+                request=ask,
+                image_bytes=_raw_bytes(req["image"]) if ask else None)
         except ValueError as e:
             return self._send(422, {"error": str(e)})
         except Exception as e:

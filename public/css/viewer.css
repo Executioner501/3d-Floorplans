@@ -216,6 +216,38 @@ button, input, select { font: inherit; color: inherit; }
 .go.is-busy .go__spin { opacity: 1; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.ask { display: grid; gap: .4rem; margin-top: 1.1rem; }
+.ask > span {
+  font-size: .72rem;
+  font-weight: 500;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ask i { font-style: normal; text-transform: none; letter-spacing: 0; opacity: .65; }
+.ask input {
+  padding: .7rem .85rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  font-size: .92rem;
+  transition: border-color .2s, box-shadow .2s;
+}
+.ask input:focus {
+  outline: none;
+  border-color: var(--sakura);
+  box-shadow: 0 0 0 3px rgba(229,138,165,.14);
+}
+
+.origin {
+  margin: .5rem 0 0;
+  font-size: .84rem;
+  color: var(--ink-3);
+  padding-left: .8rem;
+  border-left: 2px solid var(--line);
+}
+.origin--llm { color: var(--ink-2); border-left-color: var(--sakura); }
+
 .sample { margin: 1rem 0 0; font-size: .85rem; color: var(--ink-3); }
 .sample button {
   border: 0;

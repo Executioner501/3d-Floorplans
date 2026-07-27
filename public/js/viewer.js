@@ -10,8 +10,9 @@ const $ = (id) => document.getElementById(id);
 const drop = $('drop'), fileIn = $('file'), preview = $('preview'),
       dropEmpty = $('drop-empty'), clearBtn = $('clear'),
       go = $('go'), styleSel = $('style'), seedIn = $('seed'),
+      requestIn = $('request'),
       out = $('out'), alertEl = $('alert'), statsEl = $('stats'),
-      recipeEl = $('recipe'), roofNote = $('roof-note'),
+      recipeEl = $('recipe'), roofNote = $('roof-note'), originEl = $('origin'),
       dlBtn = $('dl'), dlBareBtn = $('dl-bare'), againBtn = $('again'),
       stageLoad = $('stage-load');
 
@@ -319,6 +320,7 @@ async function generate(newSeed = false) {
         image: imageDataURL,
         style: styleSel.value,
         seed: seedVal === '' ? null : Number(seedVal),
+        request: requestIn.value.trim() || null,
       }),
     });
 
@@ -368,6 +370,23 @@ const FIELDS = [
 function showStats(s) {
   recipeEl.textContent = `${s.recipe} · ${s.material}`;
   roofNote.textContent = `${s.style}, ${s.pitch}° pitch, ${s.material}`;
+
+  // Say plainly which designer produced this. When a written request falls
+  // back, the user needs to know they are looking at a library composition
+  // rather than the one they asked for — and why.
+  if (s.source === 'llm') {
+    originEl.textContent = s.rationale
+      ? `Composed by Gemini for this footprint — ${s.rationale}`
+      : 'Composed by Gemini for this footprint.';
+    originEl.className = 'origin origin--llm';
+    originEl.hidden = false;
+  } else if (s.note) {
+    originEl.textContent = `Used the composition library instead (${s.note}).`;
+    originEl.className = 'origin';
+    originEl.hidden = false;
+  } else {
+    originEl.hidden = true;
+  }
   statsEl.innerHTML = '';
   for (const [label, fn] of FIELDS) {
     const wrap = document.createElement('div');

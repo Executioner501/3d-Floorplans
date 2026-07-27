@@ -75,6 +75,12 @@
       </button>
     </div>
 
+    <label class="ask">
+      <span>Describe the roof you want <i>optional — leave blank to use the composition library</i></span>
+      <input id="request" type="text" maxlength="200"
+             placeholder="e.g. modern, low carport wing and a clerestory band">
+    </label>
+
     <p class="sample">
       No plan handy? <button type="button" id="use-sample">Use the sample plan</button>
     </p>
@@ -88,6 +94,7 @@
       <div>
         <h2 class="panel__title">Your building</h2>
         <p class="panel__sub" id="recipe">—</p>
+        <p class="origin" id="origin" hidden></p>
       </div>
       <div class="out__acts">
         <button class="mini" id="again" title="Generate a different roof for the same plan">

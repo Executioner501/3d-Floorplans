@@ -57,9 +57,52 @@ Set `ENGINE` at the top of [`main.py`](main.py):
 | Engine | Needs | What it does |
 |---|---|---|
 | **`rag`** *(default)* | nothing | Retrieves from a 44-composition knowledge base scored against the measured footprint (aspect, convexity, area, wing count), softmax-samples the top-k, and executes it. Fully offline. |
+| **`compose`** | `GEMINI_API_KEY` | Gemini **authors a new composition** in the zone grammar — not a style label. Validated, built and coverage-checked; falls back to `rag` on any failure. Accepts a natural-language request. |
 | `prior` | nothing | Local footprint-conditioned style sampler — one style, no composition. |
-| `llm` | `GEMINI_API_KEY` | Gemini reads the plan image (grounded by measured metrics) and proposes a style; `roof_ai.validate_and_repair` clamps the answer into buildable ranges. |
+| `llm` | `GEMINI_API_KEY` | Older, weaker: Gemini proposes a single style, clamped by `roof_ai.validate_and_repair`. Superseded by `compose`. |
 | `diffusion` | a trained checkpoint | Footprint-mask-conditioned DDPM over roof heightmaps. See [`ml_roof_diffusion/`](ml_roof_diffusion/). |
+
+### The `compose` engine
+
+The knowledge base stores a **design grammar** — zone layouts, split axes,
+pitch ranges, height offsets, clerestory bands, material palettes — so an LLM
+can be asked to author a new entry in it rather than pick one off the shelf:
+
+```
+floor plan + measured footprint
+   → Gemini emits a composition in the zone grammar
+   → validate_exemplar() clamps it into buildable ranges
+   → roof_generator executes it
+   → the coverage self-check verifies it
+   → anything that fails at any step falls back to rag
+```
+
+The generated composition runs through `roof_ai._resolve_recipe`, the same
+function that resolves hand-written knowledge-base entries, so there is one
+geometry path for both.
+
+**Output quality cannot regress.** Every failure — no key, network error,
+malformed JSON, a style outside the vocabulary, zones that don't tile the
+footprint, geometry that trips the coverage check — resolves to the design
+`rag` would have produced anyway. `tests/test_llm.py` asserts that the
+fallback is byte-identical to a plain `design_roof_rag` call for the same
+seed. The LLM can only ever *add* a design that survives the same
+verification the curated library passes.
+
+In the viewer this is the "describe the roof you want" field. The result
+always states which designer produced it, so a fallback is never presented as
+an AI-authored design.
+
+Gemini is called over REST with `urllib` — no new dependencies.
+`google-generativeai` pulls grpcio, protobuf and google-api-core, roughly
+40 MB uncompressed, against ~52 MB of headroom in the serverless bundle.
+
+One constraint worth knowing: zone `h_offset` is floored at 0. The coverage
+self-check measures roof presence *above* the wall top, so a zone dropped
+below it reads as unroofed and the composition gets rejected. Offsets are
+relative, so a low carport beside a tall gable is `0.0 / +0.8` rather than
+`-0.8 / 0.0` — nothing is lost, and none of the 44 curated recipes use a
+negative offset either.
 
 ### Why RAG rather than an LLM
 
@@ -269,6 +312,7 @@ and `.pt` weights out of the bundle.
 ```bash
 python tests/test_roofs.py    # roof engine: 352 builds across the whole KB
 python tests/test_api.py      # the deployed path: ONNX detect → GLB
+python tests/test_llm.py      # the compose engine's fallback contract
 ```
 
 `test_roofs.py` builds every knowledge-base exemplar on four footprint
