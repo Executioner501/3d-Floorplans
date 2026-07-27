@@ -201,6 +201,45 @@ def _colored(mesh, rgba):
     return mesh
 
 
+def _subdivide_to(v2, faces, max_edge, max_rounds=6):
+    """4-way split every triangle until no edge exceeds `max_edge`.
+
+    Pure-numpy stand-in for a quality mesher. Each round inserts the three
+    edge midpoints of every triangle; midpoints of interior edges are
+    interior points, which is exactly what the earcut fallback lacks.
+    Shared edges resolve to the same midpoint through a canonical (lo, hi)
+    key, so the surface stays watertight.
+    """
+    for _ in range(max_rounds):
+        tri = v2[faces]
+        longest = max(
+            np.linalg.norm(tri[:, (i + 1) % 3] - tri[:, i], axis=1).max()
+            for i in range(3))
+        if longest <= max_edge:
+            break
+        verts = list(map(tuple, v2))
+        index = {p: i for i, p in enumerate(verts)}
+        mid_cache = {}
+
+        def midpoint(a, b):
+            key = (a, b) if a < b else (b, a)
+            if key not in mid_cache:
+                p = tuple((v2[a] + v2[b]) / 2.0)
+                if p not in index:
+                    index[p] = len(verts)
+                    verts.append(p)
+                mid_cache[key] = index[p]
+            return mid_cache[key]
+
+        new_faces = []
+        for a, b, c in faces:
+            ab, bc, ca = midpoint(a, b), midpoint(b, c), midpoint(c, a)
+            new_faces += [[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]]
+        v2 = np.asarray(verts, dtype=float)
+        faces = np.asarray(new_faces, dtype=np.int64)
+    return v2, faces
+
+
 def _heightfield_roof(poly, height_fn, base_z, fascia=0.14, color=None,
                       max_edge=0.45):
     """Solid roof whose top surface z = base_z + fascia + height_fn(x, y).
@@ -210,7 +249,18 @@ def _heightfield_roof(poly, height_fn, base_z, fascia=0.14, color=None,
         v2, faces = trimesh.creation.triangulate_polygon(
             poly, triangle_args=f"pq30a{area_constraint:.4f}", engine="triangle")
     except Exception:
+        # No `triangle` package (it is optional and usually absent — it is
+        # not in the deployment requirements). The earcut fallback
+        # triangulates using ONLY the polygon's own vertices: a rectangle
+        # comes back as 5 verts / 2 triangles with nothing in the interior.
+        # Height is evaluated PER VERTEX below and dist-to-boundary is 0 at
+        # every boundary vertex, so the whole surface collapsed to
+        # base_z + fascia — a flat 14 cm slab wherever a hip, pyramid,
+        # dutch-gable or mansard belonged. Subdividing restores interior
+        # vertices without taking the dependency.
         v2, faces = trimesh.creation.triangulate_polygon(poly)
+        v2, faces = _subdivide_to(np.asarray(v2, dtype=float),
+                                  np.asarray(faces, dtype=np.int64), max_edge)
     v2 = np.asarray(v2, dtype=float)
     faces = np.asarray(faces, dtype=np.int64)
 
@@ -647,8 +697,20 @@ def generate_roof(walls, params, scale=0.01, wall_h=3.0):
             x0, y0, x1, y1 = wings[0]
             w, d = x1 - x0, y1 - y0
             cw = min(w, d) * rng.uniform(0.42, 0.55)
-            cx = rng.uniform(x0 + cw, x1 - cw) if w > d else (x0 + x1) / 2
-            cy = (y0 + y1) / 2 if w > d else rng.uniform(y0 + cw, y1 - cw)
+            # The cross wing has to fit on the axis it slides along AND leave
+            # room to slide. On a near-square plan min(w, d) * 0.55 exceeds
+            # half that axis, which inverted the range below into
+            # "ValueError: high - low < 0". Retrieval almost never picks
+            # cross-gable for a square footprint, so this stayed latent.
+            cw = min(cw, (w if w > d else d) * 0.45)
+            if w > d:
+                lo, hi = x0 + cw, x1 - cw
+                cx = float(rng.uniform(lo, hi)) if hi > lo else (x0 + x1) / 2
+                cy = (y0 + y1) / 2
+            else:
+                lo, hi = y0 + cw, y1 - cw
+                cy = float(rng.uniform(lo, hi)) if hi > lo else (y0 + y1) / 2
+                cx = (x0 + x1) / 2
             if w > d:
                 wings.append((cx - cw / 2, y0 - rng.uniform(0.0, 0.6),
                               cx + cw / 2, y1 + rng.uniform(0.4, 1.2)))
